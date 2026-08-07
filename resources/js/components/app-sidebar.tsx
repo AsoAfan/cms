@@ -6,7 +6,6 @@ import {
     Receipt,
     ShoppingCart,
     Truck,
-    Users,
     Wallet,
 } from 'lucide-react';
 
@@ -24,6 +23,7 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import products from '@/routes/products';
+import suppliers from '@/routes/suppliers';
 import type { NavGroup } from '@/types';
 
 /**
@@ -47,6 +47,12 @@ const navigation: NavGroup[] = [
             { title: 'Products', href: products.index.url(), icon: Package },
         ],
     },
+    {
+        label: 'Contacts',
+        items: [
+            { title: 'Suppliers', href: suppliers.index.url(), icon: Truck },
+        ],
+    },
 ];
 
 /**
@@ -60,13 +66,6 @@ const upcoming: NavGroup[] = [
             { title: 'Purchases', href: '/purchases', icon: ShoppingCart },
             { title: 'Sales', href: '/sales', icon: Receipt },
             { title: 'Expenses', href: '/expenses', icon: Wallet },
-        ],
-    },
-    {
-        label: 'Contacts',
-        items: [
-            { title: 'Suppliers', href: '/suppliers', icon: Truck },
-            { title: 'Customers', href: '/customers', icon: Users },
         ],
     },
 ];

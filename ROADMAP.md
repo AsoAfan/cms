@@ -23,7 +23,7 @@ against one.
 | Costing method | **FIFO via purchase batches** | The only way to derive exact COGS and inventory valuation from transactions |
 | Stock on hand | Derived from the `stock_movements` ledger | No stored balance that can drift; cache later only if proven slow |
 | "Never store calculated values" | Exception for **recorded historical facts** | A sale line's unit price and a batch's landed unit cost are *facts at transaction time*, not caches. Totals, profit, and stock levels stay derived. |
-| Suppliers vs Customers | Separate tables | Different attributes and lifecycle; avoids a mixed-concern `contacts` table |
+| Counterparties | **Suppliers only** | Sales are over the counter, so there is no customer to name. Customers would arrive as their own table plus a nullable `customer_id` on sales — additive. |
 | Catalogue depth | **Flat: a product is the stock-keeping entity.** No variants, options, categories, brands or units | Each was built and then removed as a layer to maintain without a matching gain. Goods that differ are separate products with separate codes. All are additive to bring back. |
 | Multi-warehouse / multi-currency | Schema-ready, not built | Ledger carries a nullable `location_id`; no currency column until needed |
 | Returns | Scaffolding only in this scope | The requirements list returns as "future-ready", not required. P5.T8 lands the schema hooks so adding them later is additive, never a migration of posted data. |
@@ -86,16 +86,32 @@ against one.
 
 ---
 
-## Phase 2 — Suppliers & Customers
+## Phase 2 — Suppliers
 
-**Goal:** the counterparties on both sides of the ledger. Independent of Phase 1 — parallelizable.
+**Goal:** the counterparty you buy from. Independent of Phase 1 — parallelizable.
 
-- [ ] **P2.T1** — `suppliers` migration + model + factory.
-- [ ] **P2.T2** — `customers` migration + model + factory.
-- [ ] **P2.T3** — Supplier CRUD + list with search.
-- [ ] **P2.T4** — Customer CRUD + list with search.
-- [ ] **P2.T5** — Detail pages with placeholder transaction-history panels (filled in Phase 7).
-- [ ] **P2.T6** — Feature tests.
+- [x] **P2.T1** — `suppliers` migration + model + factory + seeder.
+- [x] **P2.T2** — ~~`customers`~~ — **not built.** Sales are over the counter and are not tied to a named buyer.
+- [x] **P2.T3** — Supplier CRUD + list with search across name, phone, email and address.
+- [x] **P2.T4** — ~~Customer CRUD~~ — not built.
+- [x] **P2.T5** — ~~Detail pages with placeholder transaction-history panels~~ — deferred. An empty panel is not worth a screen; purchase history lands on the supplier when there is history to show (P7).
+- [x] **P2.T6** — Feature tests.
+
+**Done when:** you can add a supplier and find them by name or phone. ✅
+
+> **No customers, by decision.** This changes two later phases, and neither should
+> quietly reintroduce one:
+>
+> - **P5 (Sales)** — a sale has no `customer_id`. It is a dated document with lines,
+>   payments and a total.
+> - **P7 (Reporting)** — there is no `CustomerSummaryQuery`; sales analysis is by
+>   product, period and payment method. `SupplierSummaryQuery` is unaffected.
+>
+> If named customers are ever wanted, they arrive as their own table plus a
+> **nullable** `customer_id` on sales — additive, never a migration of posted data.
+>
+> Only `name` is required on a supplier: often that is all you have when you first
+> write one down.
 
 ---
 
@@ -138,7 +154,7 @@ on-hand of 5 @ $7.
 
 ## Phase 5 — Sales
 
-- [ ] **P5.T1** — `sales` (customer, number, date, status).
+- [ ] **P5.T1** — `sales` (number, date, status). No customer — see Phase 2.
 - [ ] **P5.T2** — `sale_lines` (product, qty, unit price, discount).
 - [ ] **P5.T3** — `payment_methods` reference table + `sale_payments` (supports partial/split payment).
 - [ ] **P5.T4** — `PostSaleAction`: FIFO issue via `InventoryService`, recording COGS per line.
@@ -173,7 +189,7 @@ Small and fully independent — good parallel work alongside Phase 4/5.
 - [ ] **P7.T5** — `ExpenseReportQuery` — totals by category.
 - [ ] **P7.T6** — `ProfitReportQuery` — gross profit (revenue − COGS), net profit (− expenses).
 - [ ] **P7.T7** — `ProductProfitabilityQuery` — profit per product.
-- [ ] **P7.T8** — `SupplierSummaryQuery` / `CustomerSummaryQuery`.
+- [ ] **P7.T8** — `SupplierSummaryQuery`. (No customer summary — see Phase 2.)
 - [ ] **P7.T9** — `InventoryValuationReport` — on-hand value, dead stock.
 - [ ] **P7.T10** — Averages: average income/outcome per day, week, and month over the selected period.
 - [ ] **P7.T11** — Dashboard: KPI tiles, trend chart, recent activity.
@@ -213,6 +229,8 @@ P0 ─┬─> P1 ─┬─> P3 ──> P4 ──> P5 ──┬──> P7 ──>
     ├─> P2 ─┘                      │
     └─> P6 ────────────────────────┘
 ```
+
+Phases 0–2 are done.
 
 - Phases 2 and 6 can run alongside 1, 3, and 4.
 - Phase 3 gates all financial correctness — treat its test suite as non-negotiable.

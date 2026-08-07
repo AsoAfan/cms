@@ -45,3 +45,17 @@ Where goods differ, each difference is its own product: a curtain at 117×137 an
 `code` is the plain word for what the trade calls a SKU; the schema matches the UI rather than diverging.
 
 Product create/update is plain Eloquent in the controller — there is no Action, because there is no multi-step write to wrap. Add one when a write actually spans several tables (as `PostPurchaseAction` will).
+
+## Suppliers exist; customers deliberately do not
+`suppliers` is the only counterparty table. Purchases reference it from Phase 4.
+
+There is **no `customers` table and no customer concept**. Sales are over the counter and are not tied to a named buyer. `SupplierTest` asserts `/customers` 404s; keep it that way.
+
+Consequences for later phases — do not silently reintroduce a customer:
+
+- **P5 (Sales):** a sale has no `customer_id`. It is a dated document with lines, payments and a total, and nothing more.
+- **P7 (Reporting):** there is no `CustomerSummaryQuery`. Sales analysis is by product, by period and by payment method. `SupplierSummaryQuery` still applies.
+
+If named customers are ever wanted, they arrive as their own table plus a **nullable** `customer_id` on sales — additive, with no migration of posted documents. Ask before building it.
+
+Only `name` is required on a supplier. A supplier is often just a name and a phone number when first written down, and the form must not stand in the way of recording that.

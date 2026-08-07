@@ -16,15 +16,15 @@ export default function Dashboard() {
 
             <PageHeader
                 title="Dashboard"
-                description="Sales, purchases and profit at a glance."
+                description="Sales, purchases and profit."
             />
 
             <Card>
                 <CardContent>
                     <EmptyState
                         icon={LineChart}
-                        title="No figures yet"
-                        description="KPI tiles, the trend chart and recent activity appear here once there are transactions to derive them from."
+                        title="Nothing to show yet"
+                        description="Figures appear once you record purchases and sales."
                     />
                 </CardContent>
             </Card>

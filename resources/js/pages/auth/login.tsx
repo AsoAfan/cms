@@ -87,7 +87,4 @@ export default function Login({ canResetPassword, status }: LoginProps) {
     );
 }
 
-Login.layout = [
-    AuthLayout,
-    { title: 'Log in', description: 'Enter your credentials to continue.' },
-];
+Login.layout = [AuthLayout, { title: 'Log in', description: 'Welcome back.' }];

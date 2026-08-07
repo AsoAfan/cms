@@ -98,7 +98,7 @@ export function AppSidebar() {
                                     {props.name}
                                 </span>
                                 <span className="truncate text-xs text-muted-foreground">
-                                    Sales Management
+                                    Sales
                                 </span>
                             </div>
                         </SidebarMenuButton>
@@ -146,7 +146,7 @@ export function AppSidebar() {
                                     <SidebarMenuItem key={item.href}>
                                         <SidebarMenuButton
                                             disabled
-                                            tooltip={`${item.title} — not built yet`}
+                                            tooltip={`${item.title} — coming soon`}
                                         >
                                             <item.icon />
                                             <span>{item.title}</span>

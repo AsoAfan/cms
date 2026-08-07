@@ -5,7 +5,6 @@ import { useState } from 'react';
 import { FormField } from '@/components/form-field';
 import { PageHeader } from '@/components/page-header';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
     Card,
@@ -17,12 +16,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import {
-    InputGroup,
-    InputGroupAddon,
-    InputGroupInput,
-} from '@/components/ui/input-group';
-import { Spinner } from '@/components/ui/spinner';
+import { Separator } from '@/components/ui/separator';
 import {
     Table,
     TableBody,
@@ -33,16 +27,17 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { useCurrency } from '@/hooks/use-currency';
+import { cn } from '@/lib/utils';
 import { rebuildItemRows } from '@/lib/variants';
 import type { Attribute, ItemFormRow, ProductFormData } from '@/types/catalog';
 
 export type ProductFormProps = {
     attributes: Attribute[];
     product?: ProductFormData;
-    /** Where the form posts, and how. */
     action: { url: string; method: 'post' | 'put' };
     title: string;
-    description: string;
+    /** Extra header actions, e.g. delete on the edit screen. */
+    headerActions?: React.ReactNode;
     submitLabel: string;
 };
 
@@ -72,12 +67,26 @@ function initialSelectedValues(
     return selected;
 }
 
+/** Validation note under a table input, reserved so rows don't jump. */
+function FieldNote({ message }: { message?: string }) {
+    return (
+        <p
+            className={cn(
+                'mt-1 text-xs text-destructive',
+                !message && 'sr-only',
+            )}
+        >
+            {message}
+        </p>
+    );
+}
+
 export function ProductForm({
     attributes,
     product,
     action,
     title,
-    description,
+    headerActions,
     submitLabel,
 }: ProductFormProps) {
     const currency = useCurrency();
@@ -114,7 +123,6 @@ export function ProductForm({
     function regenerate(
         attributeIds: number[],
         values: Record<number, number[]>,
-        name = form.data.name,
     ) {
         const chosen = attributes.filter((attribute) =>
             attributeIds.includes(attribute.id),
@@ -122,7 +130,7 @@ export function ProductForm({
 
         form.setData(
             'variants',
-            rebuildItemRows(name, chosen, values, form.data.variants),
+            rebuildItemRows(form.data.name, chosen, values, form.data.variants),
         );
     }
 
@@ -191,220 +199,227 @@ export function ProductForm({
         ] as string | undefined;
     }
 
+    const showOptionColumn = chosenAttributes.length > 0;
+
     return (
         <form onSubmit={submit} className="flex flex-col gap-6">
             <PageHeader
                 title={title}
-                description={description}
                 actions={
-                    <Button type="submit" disabled={form.processing}>
-                        {form.processing && (
-                            <Spinner data-icon="inline-start" />
-                        )}
-                        {submitLabel}
-                    </Button>
+                    <>
+                        {headerActions}
+                        <Button type="submit" disabled={form.processing}>
+                            {submitLabel}
+                        </Button>
+                    </>
                 }
             />
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>Details</CardTitle>
-                    <CardDescription>
-                        What this product is and how it is grouped.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <FieldGroup>
-                        <FormField label="Name" error={form.errors.name}>
-                            {(control) => (
-                                <Input
-                                    {...control}
-                                    value={form.data.name}
-                                    placeholder="Blackout Eyelet Curtain"
-                                    autoFocus
-                                    onChange={(event) =>
-                                        form.setData('name', event.target.value)
-                                    }
-                                />
-                            )}
-                        </FormField>
-
-                        <FormField
-                            label="Description"
-                            error={form.errors.description}
-                        >
-                            {(control) => (
-                                <Textarea
-                                    {...control}
-                                    value={form.data.description ?? ''}
-                                    onChange={(event) =>
-                                        form.setData(
-                                            'description',
-                                            event.target.value,
-                                        )
-                                    }
-                                />
-                            )}
-                        </FormField>
-
-                        <Field orientation="horizontal">
-                            <Checkbox
-                                id="is_active"
-                                checked={form.data.is_active}
-                                onCheckedChange={(checked) =>
-                                    form.setData('is_active', checked === true)
-                                }
-                            />
-                            <FieldLabel
-                                htmlFor="is_active"
-                                className="font-normal"
-                            >
-                                Active — available to buy and sell
-                            </FieldLabel>
-                        </Field>
-                    </FieldGroup>
-                </CardContent>
-            </Card>
-
-            <Card>
-                <CardHeader>
-                    <CardTitle>Options</CardTitle>
-                    <CardDescription>
-                        Pick the options this product varies along. An item is
-                        generated for every combination. Leave all unticked for
-                        a product sold as a single item.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-4">
-                    {attributes.length === 0 && (
-                        <Alert>
-                            <AlertDescription>
-                                No attributes defined yet. Add one under
-                                Catalogue → Attributes to build a variant
-                                matrix.
-                            </AlertDescription>
-                        </Alert>
-                    )}
-
-                    {isEditing && selectedAttributeIds.length > 0 && (
-                        <Alert>
-                            <AlertDescription>
-                                A saved item&apos;s options are fixed —
-                                &ldquo;117cm / 137cm&rdquo; is part of what that
-                                item is. You can add or remove options to change
-                                which items exist, but the ones that remain keep
-                                their meaning.
-                            </AlertDescription>
-                        </Alert>
-                    )}
-
-                    {attributes.map((attribute) => {
-                        const isChosen = selectedAttributeIds.includes(
-                            attribute.id,
-                        );
-
-                        return (
-                            <div
-                                key={attribute.id}
-                                className="flex flex-col gap-2 rounded-lg border p-3"
-                            >
-                                <Field orientation="horizontal">
-                                    <Checkbox
-                                        id={`attribute-${attribute.id}`}
-                                        checked={isChosen}
-                                        onCheckedChange={(checked) =>
-                                            toggleAttribute(
-                                                attribute,
-                                                checked === true,
+            <div className="grid gap-6 lg:grid-cols-3">
+                <Card className="lg:col-span-2">
+                    <CardHeader>
+                        <CardTitle>Details</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <FieldGroup>
+                            <FormField label="Name" error={form.errors.name}>
+                                {(control) => (
+                                    <Input
+                                        {...control}
+                                        value={form.data.name}
+                                        placeholder="Blackout Eyelet Curtain"
+                                        autoFocus
+                                        onChange={(event) =>
+                                            form.setData(
+                                                'name',
+                                                event.target.value,
                                             )
                                         }
                                     />
-                                    <FieldLabel
-                                        htmlFor={`attribute-${attribute.id}`}
-                                    >
-                                        {attribute.name}
-                                    </FieldLabel>
-                                </Field>
-
-                                {isChosen && (
-                                    <div className="flex flex-wrap gap-3 pl-6">
-                                        {attribute.values.map((value) => (
-                                            <Field
-                                                key={value.id}
-                                                orientation="horizontal"
-                                                className="w-auto items-center"
-                                            >
-                                                <Checkbox
-                                                    id={`value-${value.id}`}
-                                                    checked={(
-                                                        selectedValues[
-                                                            attribute.id
-                                                        ] ?? []
-                                                    ).includes(value.id)}
-                                                    onCheckedChange={(
-                                                        checked,
-                                                    ) =>
-                                                        toggleValue(
-                                                            attribute,
-                                                            value.id,
-                                                            checked === true,
-                                                        )
-                                                    }
-                                                />
-                                                <FieldLabel
-                                                    htmlFor={`value-${value.id}`}
-                                                    className="font-normal"
-                                                >
-                                                    {value.value}
-                                                </FieldLabel>
-                                            </Field>
-                                        ))}
-                                    </div>
                                 )}
-                            </div>
-                        );
-                    })}
-                </CardContent>
-            </Card>
+                            </FormField>
+
+                            <FormField
+                                label="Description"
+                                error={form.errors.description}
+                            >
+                                {(control) => (
+                                    <Textarea
+                                        {...control}
+                                        rows={3}
+                                        value={form.data.description ?? ''}
+                                        onChange={(event) =>
+                                            form.setData(
+                                                'description',
+                                                event.target.value,
+                                            )
+                                        }
+                                    />
+                                )}
+                            </FormField>
+
+                            <Field orientation="horizontal">
+                                <Checkbox
+                                    id="is_active"
+                                    checked={form.data.is_active}
+                                    onCheckedChange={(checked) =>
+                                        form.setData(
+                                            'is_active',
+                                            checked === true,
+                                        )
+                                    }
+                                />
+                                <FieldLabel
+                                    htmlFor="is_active"
+                                    className="font-normal"
+                                >
+                                    Active
+                                </FieldLabel>
+                            </Field>
+                        </FieldGroup>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Options</CardTitle>
+                        <CardDescription>
+                            Tick what varies. One item per combination.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-3">
+                        {attributes.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                                No options yet. Add one under Options.
+                            </p>
+                        ) : (
+                            attributes.map((attribute, index) => {
+                                const isChosen = selectedAttributeIds.includes(
+                                    attribute.id,
+                                );
+
+                                return (
+                                    <div
+                                        key={attribute.id}
+                                        className="flex flex-col gap-2"
+                                    >
+                                        {index > 0 && (
+                                            <Separator className="mb-1" />
+                                        )}
+
+                                        <Field orientation="horizontal">
+                                            <Checkbox
+                                                id={`option-${attribute.id}`}
+                                                checked={isChosen}
+                                                onCheckedChange={(checked) =>
+                                                    toggleAttribute(
+                                                        attribute,
+                                                        checked === true,
+                                                    )
+                                                }
+                                            />
+                                            <FieldLabel
+                                                htmlFor={`option-${attribute.id}`}
+                                            >
+                                                {attribute.name}
+                                            </FieldLabel>
+                                        </Field>
+
+                                        {isChosen && (
+                                            <div className="flex flex-wrap gap-x-4 gap-y-2 pl-6">
+                                                {attribute.values.map(
+                                                    (value) => (
+                                                        <Field
+                                                            key={value.id}
+                                                            orientation="horizontal"
+                                                            className="w-auto items-center"
+                                                        >
+                                                            <Checkbox
+                                                                id={`value-${value.id}`}
+                                                                checked={(
+                                                                    selectedValues[
+                                                                        attribute
+                                                                            .id
+                                                                    ] ?? []
+                                                                ).includes(
+                                                                    value.id,
+                                                                )}
+                                                                onCheckedChange={(
+                                                                    checked,
+                                                                ) =>
+                                                                    toggleValue(
+                                                                        attribute,
+                                                                        value.id,
+                                                                        checked ===
+                                                                            true,
+                                                                    )
+                                                                }
+                                                            />
+                                                            <FieldLabel
+                                                                htmlFor={`value-${value.id}`}
+                                                                className="font-normal"
+                                                            >
+                                                                {value.value}
+                                                            </FieldLabel>
+                                                        </Field>
+                                                    ),
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
 
             <Card>
                 <CardHeader>
                     <CardTitle>
-                        Items
-                        <Badge variant="secondary" className="ml-2">
-                            {form.data.variants.length}
-                        </Badge>
+                        Items{' '}
+                        <span className="font-normal text-muted-foreground">
+                            ({form.data.variants.length})
+                        </span>
                     </CardTitle>
                     <CardDescription>
-                        Prices here are defaults that pre-fill data entry. Every
-                        purchase and sale records its own price, so changing
-                        these never rewrites history.
+                        Prices are defaults. Each purchase and sale keeps its
+                        own.
                     </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="flex flex-col gap-4">
                     {typeof form.errors.variants === 'string' && (
-                        <Alert variant="destructive" className="mb-4">
+                        <Alert variant="destructive">
                             <AlertDescription>
                                 {form.errors.variants}
                             </AlertDescription>
                         </Alert>
                     )}
 
+                    {isEditing && showOptionColumn && (
+                        <p className="text-sm text-muted-foreground">
+                            Saved items keep their options. Change the ticks
+                            above to add or remove items.
+                        </p>
+                    )}
+
                     <div className="overflow-x-auto rounded-lg border">
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    {chosenAttributes.length > 0 && (
-                                        <TableHead>Options</TableHead>
+                                    {showOptionColumn && (
+                                        <TableHead className="w-[28%]">
+                                            Item
+                                        </TableHead>
                                     )}
                                     <TableHead>Code</TableHead>
-                                    <TableHead className="text-right">
-                                        Cost
+                                    <TableHead className="w-36 text-right">
+                                        Cost ({currency.code})
                                     </TableHead>
-                                    <TableHead className="text-right">
-                                        Selling price
+                                    <TableHead className="w-36 text-right">
+                                        Price ({currency.code})
                                     </TableHead>
-                                    <TableHead />
+                                    <TableHead className="w-12" />
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -415,11 +430,9 @@ export function ProductForm({
                                             `new-${item.attribute_value_ids.join('-')}-${index}`
                                         }
                                     >
-                                        {chosenAttributes.length > 0 && (
-                                            <TableCell className="whitespace-nowrap">
-                                                <span className="font-medium">
-                                                    {item.label}
-                                                </span>
+                                        {showOptionColumn && (
+                                            <TableCell className="font-medium whitespace-nowrap">
+                                                {item.label}
                                             </TableCell>
                                         )}
                                         <TableCell>
@@ -431,6 +444,7 @@ export function ProductForm({
                                                         ? true
                                                         : undefined
                                                 }
+                                                className="font-mono"
                                                 onChange={(event) =>
                                                     updateItem(index, {
                                                         code: event.target
@@ -438,83 +452,78 @@ export function ProductForm({
                                                     })
                                                 }
                                             />
-                                            {itemError(index, 'code') && (
-                                                <p className="mt-1 text-xs text-destructive">
-                                                    {itemError(index, 'code')}
-                                                </p>
-                                            )}
+                                            <FieldNote
+                                                message={itemError(
+                                                    index,
+                                                    'code',
+                                                )}
+                                            />
                                         </TableCell>
                                         <TableCell>
-                                            <InputGroup>
-                                                <InputGroupAddon>
-                                                    {currency.code}
-                                                </InputGroupAddon>
-                                                <InputGroupInput
-                                                    inputMode="decimal"
-                                                    placeholder="0.00"
-                                                    className="text-right"
-                                                    aria-label={`Cost for ${item.label || 'this product'}`}
-                                                    value={
-                                                        item.default_cost_price ??
-                                                        ''
-                                                    }
-                                                    onChange={(event) =>
-                                                        updateItem(index, {
-                                                            default_cost_price:
-                                                                event.target
-                                                                    .value ||
-                                                                null,
-                                                        })
-                                                    }
-                                                />
-                                            </InputGroup>
-                                            {itemError(
-                                                index,
-                                                'default_cost_price',
-                                            ) && (
-                                                <p className="mt-1 text-xs text-destructive">
-                                                    {itemError(
+                                            <Input
+                                                inputMode="decimal"
+                                                placeholder="0.00"
+                                                className="text-right tabular-nums"
+                                                aria-label={`Cost for ${item.label || 'this product'}`}
+                                                aria-invalid={
+                                                    itemError(
                                                         index,
                                                         'default_cost_price',
-                                                    )}
-                                                </p>
-                                            )}
+                                                    )
+                                                        ? true
+                                                        : undefined
+                                                }
+                                                value={
+                                                    item.default_cost_price ??
+                                                    ''
+                                                }
+                                                onChange={(event) =>
+                                                    updateItem(index, {
+                                                        default_cost_price:
+                                                            event.target
+                                                                .value || null,
+                                                    })
+                                                }
+                                            />
+                                            <FieldNote
+                                                message={itemError(
+                                                    index,
+                                                    'default_cost_price',
+                                                )}
+                                            />
                                         </TableCell>
                                         <TableCell>
-                                            <InputGroup>
-                                                <InputGroupAddon>
-                                                    {currency.code}
-                                                </InputGroupAddon>
-                                                <InputGroupInput
-                                                    inputMode="decimal"
-                                                    placeholder="0.00"
-                                                    className="text-right"
-                                                    aria-label={`Selling price for ${item.label || 'this product'}`}
-                                                    value={
-                                                        item.default_selling_price ??
-                                                        ''
-                                                    }
-                                                    onChange={(event) =>
-                                                        updateItem(index, {
-                                                            default_selling_price:
-                                                                event.target
-                                                                    .value ||
-                                                                null,
-                                                        })
-                                                    }
-                                                />
-                                            </InputGroup>
-                                            {itemError(
-                                                index,
-                                                'default_selling_price',
-                                            ) && (
-                                                <p className="mt-1 text-xs text-destructive">
-                                                    {itemError(
+                                            <Input
+                                                inputMode="decimal"
+                                                placeholder="0.00"
+                                                className="text-right tabular-nums"
+                                                aria-label={`Price for ${item.label || 'this product'}`}
+                                                aria-invalid={
+                                                    itemError(
                                                         index,
                                                         'default_selling_price',
-                                                    )}
-                                                </p>
-                                            )}
+                                                    )
+                                                        ? true
+                                                        : undefined
+                                                }
+                                                value={
+                                                    item.default_selling_price ??
+                                                    ''
+                                                }
+                                                onChange={(event) =>
+                                                    updateItem(index, {
+                                                        default_selling_price:
+                                                            event.target
+                                                                .value || null,
+                                                    })
+                                                }
+                                            />
+                                            <FieldNote
+                                                message={itemError(
+                                                    index,
+                                                    'default_selling_price',
+                                                )}
+                                            />
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <Button
@@ -540,13 +549,6 @@ export function ProductForm({
                     </div>
                 </CardContent>
             </Card>
-
-            <div className="flex justify-end">
-                <Button type="submit" disabled={form.processing}>
-                    {form.processing && <Spinner data-icon="inline-start" />}
-                    {submitLabel}
-                </Button>
-            </div>
         </form>
     );
 }

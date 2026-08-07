@@ -65,6 +65,6 @@ ForgotPassword.layout = [
     AuthLayout,
     {
         title: 'Forgot password',
-        description: 'We will email you a link to choose a new one.',
+        description: "We'll email you a reset link.",
     },
 ];

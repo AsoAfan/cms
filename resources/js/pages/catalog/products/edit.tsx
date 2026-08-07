@@ -1,4 +1,4 @@
-import { Head, Link, router, setLayoutProps } from '@inertiajs/react';
+import { Head, router, setLayoutProps } from '@inertiajs/react';
 import { Trash2 } from 'lucide-react';
 
 import { ProductForm } from '@/components/catalog/product-form';
@@ -24,10 +24,6 @@ export default function ProductsEdit({ attributes, product }: EditProps) {
         ],
     });
 
-    function remove() {
-        router.delete(destroy(product.id!).url);
-    }
-
     return (
         <>
             <Head title={product.name} />
@@ -37,19 +33,18 @@ export default function ProductsEdit({ attributes, product }: EditProps) {
                 product={product}
                 action={{ url: update(product.id!).url, method: 'put' }}
                 title={product.name}
-                description="Edit this product and the items it is stocked and sold as."
-                submitLabel="Save changes"
+                submitLabel="Save"
+                headerActions={
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => router.delete(destroy(product.id!).url)}
+                    >
+                        <Trash2 data-icon="inline-start" />
+                        Delete
+                    </Button>
+                }
             />
-
-            <div className="flex items-center justify-between border-t pt-6">
-                <Button variant="outline" render={<Link href={index()} />}>
-                    Back to products
-                </Button>
-                <Button variant="outline" onClick={remove}>
-                    <Trash2 data-icon="inline-start" />
-                    Delete product
-                </Button>
-            </div>
         </>
     );
 }

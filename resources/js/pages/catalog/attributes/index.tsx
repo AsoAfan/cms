@@ -161,7 +161,7 @@ export default function AttributesIndex({
 
             <PageHeader
                 title="Options"
-                description="The ways products vary — width, drop, colour. Choose these on a product to generate its items."
+                description="How products vary — width, drop, colour."
                 actions={
                     <Button onClick={openCreate}>
                         <Plus data-icon="inline-start" />
@@ -179,7 +179,7 @@ export default function AttributesIndex({
                 empty={
                     <EmptyState
                         title="No options yet"
-                        description="Add one like Width or Drop, then a product can generate an item per combination."
+                        description="Add one like Width or Drop."
                         action={
                             <Button onClick={openCreate}>
                                 <Plus data-icon="inline-start" />
@@ -198,8 +198,8 @@ export default function AttributesIndex({
                                 {editing ? 'Edit attribute' : 'New option'}
                             </DialogTitle>
                             <DialogDescription>
-                                An option needs at least one value. Values
-                                already used by an item cannot be removed.
+                                Values already used by an item can&apos;t be
+                                removed.
                             </DialogDescription>
                         </DialogHeader>
 
@@ -223,7 +223,7 @@ export default function AttributesIndex({
                             <FormField
                                 label="Values"
                                 error={form.errors.values}
-                                description="Press Enter to add each value."
+                                description="Press Enter to add each."
                             >
                                 {(control) => (
                                     <div className="flex flex-col gap-2">

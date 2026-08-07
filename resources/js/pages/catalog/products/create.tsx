@@ -8,7 +8,7 @@ import type { Attribute } from '@/types/catalog';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Products', href: index.url() },
-    { title: 'New product' },
+    { title: 'New' },
 ];
 
 export default function ProductsCreate({
@@ -23,8 +23,7 @@ export default function ProductsCreate({
                 attributes={attributes}
                 action={{ url: store.url(), method: 'post' }}
                 title="New product"
-                description="Add a product and the items it is stocked and sold as."
-                submitLabel="Create product"
+                submitLabel="Create"
             />
         </>
     );

@@ -89,7 +89,7 @@ export default function ProductsIndex({ rows, table }: ProductsIndexProps) {
 
             <PageHeader
                 title="Products"
-                description="Everything you buy and sell. Each product is stocked as one or more items."
+                description="What you buy and sell."
                 actions={
                     <Button render={<Link href={create()} />}>
                         <Plus data-icon="inline-start" />
@@ -127,13 +127,11 @@ export default function ProductsIndex({ rows, table }: ProductsIndexProps) {
                 empty={
                     <EmptyState
                         icon={Package}
-                        title={
-                            table.search ? 'Nothing matched' : 'No products yet'
-                        }
+                        title={table.search ? 'No matches' : 'No products yet'}
                         description={
                             table.search
-                                ? `No product matches "${table.search}".`
-                                : 'Add your first product to start purchasing and selling.'
+                                ? `Nothing matches "${table.search}".`
+                                : 'Add your first product to get started.'
                         }
                         action={
                             <Button render={<Link href={create()} />}>

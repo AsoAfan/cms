@@ -79,6 +79,6 @@ ResetPassword.layout = [
     AuthLayout,
     {
         title: 'Reset password',
-        description: 'Choose a new password for your account.',
+        description: 'Choose a new one.',
     },
 ];

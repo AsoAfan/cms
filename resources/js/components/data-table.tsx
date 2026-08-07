@@ -120,7 +120,7 @@ export function DataTable<T>({
         setSearch(serverSearch);
     }
 
-    // Debounced so typing a SKU does not fire a request per keystroke.
+    // Debounced so typing a code does not fire a request per keystroke.
     useEffect(() => {
         if (search === serverSearch) {
             return;
@@ -267,12 +267,12 @@ export function DataTable<T>({
                                         <EmptyState
                                             title={
                                                 state.search
-                                                    ? 'Nothing matched'
+                                                    ? 'No matches'
                                                     : 'Nothing here yet'
                                             }
                                             description={
                                                 state.search
-                                                    ? `No results for "${state.search}".`
+                                                    ? `Nothing matches "${state.search}".`
                                                     : undefined
                                             }
                                         />

@@ -19,12 +19,12 @@ against one.
 | Decision | Choice | Rationale |
 | --- | --- | --- |
 | Money storage | `bigInteger` minor units + `Money` cast | Floats break financial determinism |
-| Quantity | `integer` — unsigned on document lines, **signed** on `stock_movements` | All items are countable whole units — no weights or volumes, so decimal rounding never enters stock or COGS. **Confirmed for curtains (P1):** size is an option on the item, not a measured quantity, so a 117×137cm curtain is one whole piece. Movements are signed (+ receive / − issue); line quantities carry a `> 0` check constraint. |
+| Quantity | `integer` — unsigned on document lines, **signed** on `stock_movements` | All items are countable whole units — no weights or volumes, so decimal rounding never enters stock or COGS. **Confirmed for curtains (P1):** each size is its own product counted in pieces, never a measured quantity, so a 117×137cm curtain is one whole piece. Movements are signed (+ receive / − issue); line quantities carry a `> 0` check constraint. |
 | Costing method | **FIFO via purchase batches** | The only way to derive exact COGS and inventory valuation from transactions |
 | Stock on hand | Derived from the `stock_movements` ledger | No stored balance that can drift; cache later only if proven slow |
 | "Never store calculated values" | Exception for **recorded historical facts** | A sale line's unit price and a batch's landed unit cost are *facts at transaction time*, not caches. Totals, profit, and stock levels stay derived. |
 | Suppliers vs Customers | Separate tables | Different attributes and lifecycle; avoids a mixed-concern `contacts` table |
-| Catalogue depth | Product → items → options. **No categories, brands or units** | Each was a screen to maintain for a catalogue this focused. Options already carry what actually varies (width, drop, colour). All three are additive to bring back. |
+| Catalogue depth | **Flat: a product is the stock-keeping entity.** No variants, options, categories, brands or units | Each was built and then removed as a layer to maintain without a matching gain. Goods that differ are separate products with separate codes. All are additive to bring back. |
 | Multi-warehouse / multi-currency | Schema-ready, not built | Ledger carries a nullable `location_id`; no currency column until needed |
 | Returns | Scaffolding only in this scope | The requirements list returns as "future-ready", not required. P5.T8 lands the schema hooks so adding them later is additive, never a migration of posted data. |
 | Rounding remainders | Largest-remainder allocation, residual to the last line by `id` | Splitting $100 across 3 units gives 3333/3333/3334. A fixed, deterministic rule guarantees allocated costs sum **exactly** to the invoice total, so reconciliation never drifts by a cent. Applies to landed costs and invoice-level discounts alike. |
@@ -55,28 +55,32 @@ against one.
 
 ## Phase 1 — Product Catalog
 
-**Goal:** model products flexibly enough that new attributes never require a migration.
+**Goal:** a product list simple enough to keep current, and precise enough to cost from.
 
-- [x] **P1.T1** — Migrations: ~~`categories`, `brands`, `units`~~ — **all three dropped.** Each was a layer to maintain with no matching gain for this business; any can be added back additively.
-- [x] **P1.T2** — Migrations: `products`, `product_variants` (item-level — the real stock-keeping entity). The identifier column is `code`, not `sku`.
-- [x] **P1.T3** — Migrations: `attributes`, `attribute_values`, `product_variant_attribute_value` — queryable options without schema churn.
-- [x] **P1.T4** — Models, relationships, factories, curtain seeder (Width × Drop, Width × Colour, and a plain one-item product).
-- [x] **P1.T5** — Pricing: `default_cost_price` / `default_selling_price` on the item as *defaults only*; transactions record their own prices. Null means "not priced yet" rather than zero.
-- [x] **P1.T6** — CRUD for options (`attributes` + their values), managed inline from the index screen.
-- [x] **P1.T7** — Product CRUD with the item matrix builder (pick options → generate items).
-- [x] **P1.T8** — Product list: search, status filter, code lookup, pagination.
-- [x] **P1.T9** — Feature tests for catalogue CRUD and item generation, plus schema-constraint tests proving the database enforces item coherence.
+- [x] **P1.T1** — ~~`categories`, `brands`, `units`~~ — built, then all removed.
+- [x] **P1.T2** — `products`. ~~`product_variants`~~ — built, then removed: a product **is** the stock-keeping entity, with its own `code`, cost and price.
+- [x] **P1.T3** — ~~`attributes`, `attribute_values`, pivot~~ — built with a full variant matrix builder, then removed.
+- [x] **P1.T4** — Model, factory, seeder (flat curtain catalogue, one row per size).
+- [x] **P1.T5** — Pricing: `default_cost_price` / `default_selling_price` as *defaults only*; transactions record their own prices. Null means "not priced yet" rather than zero.
+- [x] **P1.T6** — n/a — no reference data left to manage.
+- [x] **P1.T7** — Product CRUD: one form, six fields.
+- [x] **P1.T8** — Product list: search across name and code, status filter, sortable prices, pagination.
+- [x] **P1.T9** — Feature tests for product CRUD, pricing precision, code uniqueness and filtering.
 
-**Done when:** you can create a product with 3 items across 2 options and find it by code. ✅
+**Done when:** ~~you can create a product with 3 items across 2 options and find it by code~~ →
+**you can create a product and find it by name or code.** ✅
 
-> **Vocabulary:** the UI says **product** → **items** (each with a **code**) → **options**.
-> The schema still says `product_variants` and `attributes` for Eloquent's benefit.
+> **The catalogue is flat.** Categories, brands, units, variants and options were each
+> built and then removed at the user's direction — every one was a screen to maintain
+> without a matching gain. Where goods differ, each difference is its own product:
+> a curtain at 117×137 and one at 168×183 are two rows with two codes.
 >
-> **Sizing is an option, not a quantity.** Curtains vary by width and drop, so an item
-> *is* a finished size and is still counted in whole pieces. Confirmed with the user,
-> so the integer-quantity Guiding Decision stands and Phase 3's FIFO costing is safe.
-> If anything ever has to be sold by the metre or by area, that decision must be
-> reopened before Phase 3 is built.
+> This also settles the quantity question: a product is counted in whole pieces, never
+> measured, so the integer-quantity Guiding Decision holds and Phase 3's FIFO costing
+> stays exact. If anything ever needs selling by the metre or by area, reopen that
+> decision **before** building the ledger.
+>
+> Each removed layer is additive to bring back — none of them left a trace in the schema.
 
 **Blocks:** Phases 3–5.
 
@@ -99,11 +103,11 @@ against one.
 
 **Goal:** one append-only source of truth for stock and cost. Build before anything writes stock.
 
-- [ ] **P3.T1** — `stock_movements`: variant, signed qty, type enum, polymorphic `source` (purchase line / sale line / adjustment), `occurred_at`, nullable `location_id`.
-- [ ] **P3.T2** — `stock_batches`: variant, source purchase line, `quantity_received`, `unit_cost` (landed), `received_at`.
+- [ ] **P3.T1** — `stock_movements`: product, signed qty, type enum, polymorphic `source` (purchase line / sale line / adjustment), `occurred_at`, nullable `location_id`.
+- [ ] **P3.T2** — `stock_batches`: product, source purchase line, `quantity_received`, `unit_cost` (landed), `received_at`.
 - [ ] **P3.T3** — `stock_batch_consumptions`: batch, consuming movement, qty, cost — the FIFO allocation record that produces exact COGS.
 - [ ] **P3.T4** — `InventoryService`: `receive()`, `issue()` (FIFO consumption), `adjust()`.
-- [ ] **P3.T5** — `StockOnHandQuery` — derives quantity per variant at any date from the ledger.
+- [ ] **P3.T5** — `StockOnHandQuery` — derives quantity per product at any date from the ledger.
 - [ ] **P3.T6** — `InventoryValuationQuery` — value on hand at any date.
 - [ ] **P3.T7** — Insufficient-stock guard + domain exception.
 - [ ] **P3.T8** — Manual stock adjustment screen (damage, count correction) with reason.
@@ -120,11 +124,11 @@ on-hand of 5 @ $7.
 ## Phase 4 — Purchasing
 
 - [ ] **P4.T1** — `purchases` (invoice header: supplier, number, date, status, notes).
-- [ ] **P4.T2** — `purchase_lines` (variant, qty, unit cost, discount).
+- [ ] **P4.T2** — `purchase_lines` (product, qty, unit cost, discount).
 - [ ] **P4.T3** — `purchase_additional_costs` (freight, customs) + allocation strategy enum (by value / by qty).
 - [ ] **P4.T4** — `PostPurchaseAction`: allocate landed cost → create batches → write stock movements, inside a transaction. Use largest-remainder allocation with the residual on the last line by `id`; assert allocated costs sum exactly to the invoice total.
 - [ ] **P4.T5** — Draft → Posted status machine; posted purchases are immutable (reversal, not edit).
-- [ ] **P4.T6** — Purchase entry form: fast line entry, variant combobox, keyboard-driven, live totals.
+- [ ] **P4.T6** — Purchase entry form: fast line entry, product combobox, keyboard-driven, live totals.
 - [ ] **P4.T7** — Purchase list + detail view with movement trace.
 - [ ] **P4.T8** — Feature tests including landed-cost allocation math.
 
@@ -135,7 +139,7 @@ on-hand of 5 @ $7.
 ## Phase 5 — Sales
 
 - [ ] **P5.T1** — `sales` (customer, number, date, status).
-- [ ] **P5.T2** — `sale_lines` (variant, qty, unit price, discount).
+- [ ] **P5.T2** — `sale_lines` (product, qty, unit price, discount).
 - [ ] **P5.T3** — `payment_methods` reference table + `sale_payments` (supports partial/split payment).
 - [ ] **P5.T4** — `PostSaleAction`: FIFO issue via `InventoryService`, recording COGS per line.
 - [ ] **P5.T5** — Draft → Posted status machine (returns-ready).
@@ -168,7 +172,7 @@ Small and fully independent — good parallel work alongside Phase 4/5.
 - [ ] **P7.T4** — `PurchaseReportQuery` — total purchases, average buying cost.
 - [ ] **P7.T5** — `ExpenseReportQuery` — totals by category.
 - [ ] **P7.T6** — `ProfitReportQuery` — gross profit (revenue − COGS), net profit (− expenses).
-- [ ] **P7.T7** — `ProductProfitabilityQuery` — profit per product/variant.
+- [ ] **P7.T7** — `ProductProfitabilityQuery` — profit per product.
 - [ ] **P7.T8** — `SupplierSummaryQuery` / `CustomerSummaryQuery`.
 - [ ] **P7.T9** — `InventoryValuationReport` — on-hand value, dead stock.
 - [ ] **P7.T10** — Averages: average income/outcome per day, week, and month over the selected period.

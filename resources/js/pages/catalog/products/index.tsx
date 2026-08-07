@@ -4,6 +4,7 @@ import { Package, Plus } from 'lucide-react';
 import { DataTable } from '@/components/data-table';
 import type { Column } from '@/components/data-table';
 import { EmptyState } from '@/components/empty-state';
+import { MoneyDisplay } from '@/components/money-display';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,12 +24,13 @@ const breadcrumbs: BreadcrumbItem[] = [{ title: 'Products' }];
 
 const ANY = 'any';
 
-type ProductsIndexProps = {
+export default function ProductsIndex({
+    rows,
+    table,
+}: {
     rows: Paginated<ProductListRow>;
     table: TableState;
-};
-
-export default function ProductsIndex({ rows, table }: ProductsIndexProps) {
+}) {
     function applyFilter(key: string, value: string) {
         const url = new URL(window.location.href);
 
@@ -62,13 +64,39 @@ export default function ProductsIndex({ rows, table }: ProductsIndexProps) {
             ),
         },
         {
-            key: 'variants_count',
-            header: 'Items',
+            key: 'code',
+            header: 'Code',
+            sortable: true,
+            cell: (row) => (
+                <span className="font-mono text-sm text-muted-foreground">
+                    {row.code}
+                </span>
+            ),
+        },
+        {
+            key: 'default_cost_price',
+            header: 'Cost',
             sortable: true,
             align: 'right',
-            cell: (row) => (
-                <Badge variant="secondary">{row.variants_count}</Badge>
-            ),
+            hideOnMobile: true,
+            cell: (row) =>
+                row.default_cost_price === null ? (
+                    <span className="text-muted-foreground">—</span>
+                ) : (
+                    <MoneyDisplay amount={row.default_cost_price} />
+                ),
+        },
+        {
+            key: 'default_selling_price',
+            header: 'Price',
+            sortable: true,
+            align: 'right',
+            cell: (row) =>
+                row.default_selling_price === null ? (
+                    <span className="text-muted-foreground">—</span>
+                ) : (
+                    <MoneyDisplay amount={row.default_selling_price} />
+                ),
         },
         {
             key: 'is_active',
@@ -103,7 +131,7 @@ export default function ProductsIndex({ rows, table }: ProductsIndexProps) {
                 columns={columns}
                 state={table}
                 getRowKey={(row) => row.id}
-                searchPlaceholder="Search products"
+                searchPlaceholder="Search name or code"
                 toolbar={
                     <Select
                         value={table.filters.status ?? ANY}

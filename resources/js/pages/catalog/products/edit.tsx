@@ -6,14 +6,13 @@ import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
 import { destroy, index, update } from '@/routes/products';
 import type { BreadcrumbItem } from '@/types';
-import type { Attribute, ProductFormData } from '@/types/catalog';
+import type { ProductFormData } from '@/types/catalog';
 
-type EditProps = {
-    attributes: Attribute[];
+export default function ProductsEdit({
+    product,
+}: {
     product: ProductFormData;
-};
-
-export default function ProductsEdit({ attributes, product }: EditProps) {
+}) {
     // The breadcrumb carries the product's name, which the layout cannot know
     // on its own. Reading it off the page element inside `Page.layout` looks
     // equivalent but silently breaks SSR; layout props are the supported way.
@@ -29,7 +28,6 @@ export default function ProductsEdit({ attributes, product }: EditProps) {
             <Head title={product.name} />
 
             <ProductForm
-                attributes={attributes}
                 product={product}
                 action={{ url: update(product.id!).url, method: 'put' }}
                 title={product.name}

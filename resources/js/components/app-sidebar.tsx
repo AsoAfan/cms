@@ -5,7 +5,6 @@ import {
     Package,
     Receipt,
     ShoppingCart,
-    SlidersHorizontal,
     Truck,
     Users,
     Wallet,
@@ -24,7 +23,6 @@ import {
     SidebarRail,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
-import attributes from '@/routes/attributes';
 import products from '@/routes/products';
 import type { NavGroup } from '@/types';
 
@@ -47,11 +45,6 @@ const navigation: NavGroup[] = [
         label: 'Catalogue',
         items: [
             { title: 'Products', href: products.index.url(), icon: Package },
-            {
-                title: 'Attributes',
-                href: attributes.index.url(),
-                icon: SlidersHorizontal,
-            },
         ],
     },
 ];

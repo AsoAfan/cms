@@ -7,19 +7,32 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * The catalogue entry a customer recognises.
+     * A product is the stock-keeping entity: the thing that is counted,
+     * bought and sold. One row, one code, one price.
      *
-     * Carries no price and no stock of its own — those belong to the item,
-     * which is the real stock-keeping entity. Deliberately has no category,
-     * brand or unit: for this business they were management overhead without
-     * a matching gain, and any of them can be added later additively.
+     * There are deliberately no variants, options, categories, brands or
+     * units. Where goods differ — a curtain at 117×137 versus 168×183 — each
+     * is its own product with its own code. That keeps every screen and every
+     * later ledger entry pointing at a single table.
      */
     public function up(): void
     {
         Schema::create('products', function (Blueprint $table) {
             $table->id();
             $table->string('name');
+
+            // The short code printed on the label.
+            $table->string('code')->unique();
+
             $table->text('description')->nullable();
+
+            // Defaults that pre-fill data entry only. Every purchase and sale
+            // records its own price as a fact at transaction time, so changing
+            // these never rewrites history. Null means "not priced yet", which
+            // is a real state and truer than storing zero.
+            $table->bigInteger('default_cost_price')->nullable();
+            $table->bigInteger('default_selling_price')->nullable();
+
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 

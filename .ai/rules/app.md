@@ -34,3 +34,18 @@ Decisions from ROADMAP.md that Phase 3+ must implement, not re-litigate:
 - Posted financial documents are immutable. Draft → Posted is one-way; undoing means a reversal document.
 - "Never store calculated values" has one exception: recorded historical facts. A sale line's unit price and a batch's landed unit cost are facts at transaction time. Totals, profit and stock levels stay derived.
 - Quantities are integers — unsigned on document lines (with a `> 0` check constraint), signed on `stock_movements`.
+
+## Catalogue vocabulary and shape: product → items → options
+The catalogue is deliberately shallow. There are **no categories, brands or units** — each was dropped as a screen to maintain with no matching gain. Do not reintroduce one without asking; all three are additive.
+
+Vocabulary, which the UI and tests must follow:
+
+- **Product** — the catalogue entry a customer recognises (`products`).
+- **Item** — the stock-keeping entity that is counted, bought and sold (`product_variants`). Its identifier column is `code`, NOT `sku` — the user asked for the plainer word and the schema matches the UI.
+- **Option** — an axis a product varies along (`attributes`), with values (`attribute_values`).
+
+The table and relation names keep Eloquent's conventions (`variants()`, `attributeValues()`); everything a person reads says item / code / option.
+
+**Sizing is an option, not a quantity.** This business sells curtains: an item *is* a finished size ("117cm / 137cm") counted in whole pieces. That is what keeps the integer-quantity Guiding Decision valid through FIFO costing. If anything ever needs selling by the metre or by area, reopen that decision before building Phase 3.
+
+`ProductVariant::optionLabel()` orders values by `attribute_id` (creation order), not alphabetically — a curtain must read "Width / Drop", and sorting by name renders it backwards.

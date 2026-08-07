@@ -5,6 +5,7 @@ import {
     Package,
     Receipt,
     ShoppingCart,
+    SlidersHorizontal,
     Truck,
     Users,
     Wallet,
@@ -23,6 +24,8 @@ import {
     SidebarRail,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import attributes from '@/routes/attributes';
+import products from '@/routes/products';
 import type { NavGroup } from '@/types';
 
 /**
@@ -40,6 +43,17 @@ const navigation: NavGroup[] = [
             },
         ],
     },
+    {
+        label: 'Catalogue',
+        items: [
+            { title: 'Products', href: products.index.url(), icon: Package },
+            {
+                title: 'Attributes',
+                href: attributes.index.url(),
+                icon: SlidersHorizontal,
+            },
+        ],
+    },
 ];
 
 /**
@@ -47,10 +61,6 @@ const navigation: NavGroup[] = [
  * visible from day one. Each is removed from here as its phase delivers it.
  */
 const upcoming: NavGroup[] = [
-    {
-        label: 'Catalog',
-        items: [{ title: 'Products', href: '/products', icon: Package }],
-    },
     {
         label: 'Trade',
         items: [

@@ -19,11 +19,12 @@ against one.
 | Decision | Choice | Rationale |
 | --- | --- | --- |
 | Money storage | `bigInteger` minor units + `Money` cast | Floats break financial determinism |
-| Quantity | `integer` — unsigned on document lines, **signed** on `stock_movements` | All items are countable whole units — no weights or volumes, so decimal rounding never enters stock or COGS. Movements are signed (+ receive / − issue); line quantities carry a `> 0` check constraint. |
+| Quantity | `integer` — unsigned on document lines, **signed** on `stock_movements` | All items are countable whole units — no weights or volumes, so decimal rounding never enters stock or COGS. **Confirmed for curtains (P1):** size is an option on the item, not a measured quantity, so a 117×137cm curtain is one whole piece. Movements are signed (+ receive / − issue); line quantities carry a `> 0` check constraint. |
 | Costing method | **FIFO via purchase batches** | The only way to derive exact COGS and inventory valuation from transactions |
 | Stock on hand | Derived from the `stock_movements` ledger | No stored balance that can drift; cache later only if proven slow |
 | "Never store calculated values" | Exception for **recorded historical facts** | A sale line's unit price and a batch's landed unit cost are *facts at transaction time*, not caches. Totals, profit, and stock levels stay derived. |
 | Suppliers vs Customers | Separate tables | Different attributes and lifecycle; avoids a mixed-concern `contacts` table |
+| Catalogue depth | Product → items → options. **No categories, brands or units** | Each was a screen to maintain for a catalogue this focused. Options already carry what actually varies (width, drop, colour). All three are additive to bring back. |
 | Multi-warehouse / multi-currency | Schema-ready, not built | Ledger carries a nullable `location_id`; no currency column until needed |
 | Returns | Scaffolding only in this scope | The requirements list returns as "future-ready", not required. P5.T8 lands the schema hooks so adding them later is additive, never a migration of posted data. |
 | Rounding remainders | Largest-remainder allocation, residual to the last line by `id` | Splitting $100 across 3 units gives 3333/3333/3334. A fixed, deterministic rule guarantees allocated costs sum **exactly** to the invoice total, so reconciliation never drifts by a cent. Applies to landed costs and invoice-level discounts alike. |
@@ -56,17 +57,27 @@ against one.
 
 **Goal:** model products flexibly enough that new attributes never require a migration.
 
-- [ ] **P1.T1** — Migrations: `categories`, `brands`, `units`.
-- [ ] **P1.T2** — Migrations: `products`, `product_variants` (SKU-level — the real stock-keeping entity).
-- [ ] **P1.T3** — Migrations: `attributes`, `attribute_values`, `product_variant_attribute_value` — queryable attributes without schema churn.
-- [ ] **P1.T4** — Models, relationships, factories, seeders.
-- [ ] **P1.T5** — Pricing: `default_cost_price` / `default_selling_price` on the variant as *defaults only*; transactions record their own prices.
-- [ ] **P1.T6** — CRUD for categories, brands, units.
-- [ ] **P1.T7** — Product CRUD with variant matrix builder (pick attributes → generate SKUs).
-- [ ] **P1.T8** — Product list: search, category/brand filter, pagination.
-- [ ] **P1.T9** — Feature tests for catalog CRUD and variant generation.
+- [x] **P1.T1** — Migrations: ~~`categories`, `brands`, `units`~~ — **all three dropped.** Each was a layer to maintain with no matching gain for this business; any can be added back additively.
+- [x] **P1.T2** — Migrations: `products`, `product_variants` (item-level — the real stock-keeping entity). The identifier column is `code`, not `sku`.
+- [x] **P1.T3** — Migrations: `attributes`, `attribute_values`, `product_variant_attribute_value` — queryable options without schema churn.
+- [x] **P1.T4** — Models, relationships, factories, curtain seeder (Width × Drop, Width × Colour, and a plain one-item product).
+- [x] **P1.T5** — Pricing: `default_cost_price` / `default_selling_price` on the item as *defaults only*; transactions record their own prices. Null means "not priced yet" rather than zero.
+- [x] **P1.T6** — CRUD for options (`attributes` + their values), managed inline from the index screen.
+- [x] **P1.T7** — Product CRUD with the item matrix builder (pick options → generate items).
+- [x] **P1.T8** — Product list: search, status filter, code lookup, pagination.
+- [x] **P1.T9** — Feature tests for catalogue CRUD and item generation, plus schema-constraint tests proving the database enforces item coherence.
 
-**Done when:** you can create a product with 3 variants across 2 attributes and find it by SKU.
+**Done when:** you can create a product with 3 items across 2 options and find it by code. ✅
+
+> **Vocabulary:** the UI says **product** → **items** (each with a **code**) → **options**.
+> The schema still says `product_variants` and `attributes` for Eloquent's benefit.
+>
+> **Sizing is an option, not a quantity.** Curtains vary by width and drop, so an item
+> *is* a finished size and is still counted in whole pieces. Confirmed with the user,
+> so the integer-quantity Guiding Decision stands and Phase 3's FIFO costing is safe.
+> If anything ever has to be sold by the metre or by area, that decision must be
+> reopened before Phase 3 is built.
+
 **Blocks:** Phases 3–5.
 
 ---

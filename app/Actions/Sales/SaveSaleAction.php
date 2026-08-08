@@ -6,6 +6,7 @@ use App\Enums\PaymentMethod;
 use App\Enums\SaleStatus;
 use App\Exceptions\SaleNotPostableException;
 use App\Models\Sale;
+use App\Support\ExchangeRates;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 
@@ -19,7 +20,11 @@ use Illuminate\Support\Facades\DB;
 final class SaveSaleAction
 {
     /**
-     * @param  array{sold_on: string, payment_method: string, notes: string|null}  $header
+     * Every amount here is already in the base currency — the Form Request is the
+     * one place that converts. `currency` and `exchange_rate` on the header record
+     * what the money changed hands in and at what rate.
+     *
+     * @param  array{sold_on: string, payment_method: string, notes: string|null, currency?: string, exchange_rate?: int}  $header
      * @param  list<array{product_id: int, quantity: int, unit_price: string, discount: string}>  $lines
      *
      * @throws SaleNotPostableException
@@ -40,6 +45,8 @@ final class SaveSaleAction
                 'sold_on' => $header['sold_on'],
                 'payment_method' => PaymentMethod::from($header['payment_method']),
                 'notes' => $header['notes'],
+                'currency' => $header['currency'] ?? config('money.currency'),
+                'exchange_rate' => $header['exchange_rate'] ?? ExchangeRates::SCALE,
             ])->save();
 
             $sale->lines()->delete();

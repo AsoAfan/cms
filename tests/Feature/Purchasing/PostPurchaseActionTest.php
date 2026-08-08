@@ -60,7 +60,7 @@ function draftPurchase(array $lines, array $costs = [], string $on = '2026-01-15
 */
 
 it('raises stock and sets the landed unit cost per batch', function () {
-    $product = Product::factory()->create(['code' => 'BEC-117-137']);
+    $product = Product::factory()->create(['name' => 'Blackout Eyelet Curtain 117x137']);
 
     $purchase = draftPurchase(
         lines: [['product' => $product, 'quantity' => 10, 'unit_cost' => '18.00']],

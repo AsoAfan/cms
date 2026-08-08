@@ -3,6 +3,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 
 import { FormField } from '@/components/form-field';
+import { MoneyInput } from '@/components/money-input';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,8 +32,13 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
-import { useCurrency, useFormatMoney } from '@/hooks/use-currency';
-import { parseMoney } from '@/lib/money';
+import {
+    useCurrency,
+    useFormatMoney,
+    useRestate,
+    useToBase,
+} from '@/hooks/use-currency';
+import { todayIso } from '@/lib/date';
 import type {
     AdditionalCostForm,
     AllocationMethodOption,
@@ -53,21 +59,46 @@ export type PurchaseFormProps = {
     submitLabel: string;
 };
 
-function blankLine(): PurchaseLineForm {
-    return { product_id: null, quantity: '1', unit_cost: '', discount: '' };
+/**
+ * Stands in for "nobody" in the supplier select, which cannot hold null: the
+ * supplier is optional, so leaving it off has to be something you can pick and
+ * pick back off, not just an untouched box.
+ */
+const NO_SUPPLIER = 'none';
+
+function blankLine(currency: string): PurchaseLineForm {
+    return {
+        product_id: null,
+        quantity: '1',
+        unit_cost: '',
+        unit_cost_currency: currency,
+        discount: '',
+        discount_currency: currency,
+    };
 }
 
-/** Minor units for one line: quantity x unit cost, less the discount. */
-function lineNet(line: PurchaseLineForm): number {
+/**
+ * Base-currency minor units for one line: quantity x unit cost, less the
+ * discount.
+ *
+ * Each amount is converted from whatever it was typed in before anything is
+ * multiplied or subtracted. An invoice whose goods are priced in dollars and
+ * whose discount was given in dinars has no total in either currency alone.
+ */
+function lineNet(
+    line: PurchaseLineForm,
+    toBase: (value: string, currency: string) => number,
+): number {
     const quantity = Number(line.quantity);
-    const unitCost = parseMoney(line.unit_cost) ?? 0;
-    const discount = parseMoney(line.discount) ?? 0;
 
     if (!Number.isFinite(quantity) || quantity < 0) {
         return 0;
     }
 
-    return quantity * unitCost - discount;
+    return (
+        quantity * toBase(line.unit_cost, line.unit_cost_currency) -
+        toBase(line.discount, line.discount_currency)
+    );
 }
 
 export function PurchaseForm({
@@ -80,31 +111,78 @@ export function PurchaseForm({
     headerActions,
     submitLabel,
 }: PurchaseFormProps) {
-    const currency = useCurrency();
+    const { base, currencies } = useCurrency();
     const format = useFormatMoney();
+    const toBase = useToBase();
+    const restate = useRestate();
+
+    const invoiceCurrency = purchase?.currency ?? base;
 
     const form = useForm<PurchaseFormData>({
         supplier_id: purchase?.supplier_id ?? null,
-        invoiced_on:
-            purchase?.invoiced_on ?? new Date().toISOString().slice(0, 10),
+        invoiced_on: purchase?.invoiced_on ?? todayIso(),
+        currency: invoiceCurrency,
         notes: purchase?.notes ?? '',
-        lines: purchase?.lines?.length ? purchase.lines : [blankLine()],
+        lines: purchase?.lines?.length
+            ? purchase.lines
+            : [blankLine(invoiceCurrency)],
         additional_costs: purchase?.additional_costs ?? [],
     });
 
     const goodsTotal = useMemo(
-        () => form.data.lines.reduce((sum, line) => sum + lineNet(line), 0),
-        [form.data.lines],
+        () =>
+            form.data.lines.reduce(
+                (sum, line) => sum + lineNet(line, toBase),
+                0,
+            ),
+        [form.data.lines, toBase],
     );
 
     const costsTotal = useMemo(
         () =>
             form.data.additional_costs.reduce(
-                (sum, cost) => sum + (parseMoney(cost.amount) ?? 0),
+                (sum, cost) => sum + toBase(cost.amount, cost.amount_currency),
                 0,
             ),
-        [form.data.additional_costs],
+        [form.data.additional_costs, toBase],
     );
+
+    /**
+     * Changing what the invoice was written in carries every amount still on the
+     * old currency across with it — converting each one, exactly as a field's own
+     * dropdown does — and leaves alone any field switched by hand. Setting the
+     * header to dollars should not undo the one line somebody deliberately put in
+     * dinars.
+     */
+    function changeInvoiceCurrency(next: string) {
+        const previous = form.data.currency;
+        const moved = (currency: string) => currency === previous;
+        const follow = (value: string, currency: string) =>
+            moved(currency) ? restate(value, currency, next) : value;
+
+        form.setData((data) => ({
+            ...data,
+            currency: next,
+            lines: data.lines.map((line) => ({
+                ...line,
+                unit_cost: follow(line.unit_cost, line.unit_cost_currency),
+                unit_cost_currency: moved(line.unit_cost_currency)
+                    ? next
+                    : line.unit_cost_currency,
+                discount: follow(line.discount, line.discount_currency),
+                discount_currency: moved(line.discount_currency)
+                    ? next
+                    : line.discount_currency,
+            })),
+            additional_costs: data.additional_costs.map((cost) => ({
+                ...cost,
+                amount: follow(cost.amount, cost.amount_currency),
+                amount_currency: moved(cost.amount_currency)
+                    ? next
+                    : cost.amount_currency,
+            })),
+        }));
+    }
 
     function updateLine(index: number, patch: Partial<PurchaseLineForm>) {
         form.setData(
@@ -120,18 +198,23 @@ export function PurchaseForm({
             (candidate) => candidate.id === productId,
         );
 
-        updateLine(index, {
-            product_id: productId,
-            // Pre-fill the cost from the catalogue; the invoice still wins.
-            unit_cost:
-                form.data.lines[index].unit_cost ||
-                product?.default_cost_price ||
-                '',
-        });
+        // The catalogue price is held in the base currency, so pre-filling it
+        // has to put the field back into the base currency to match.
+        const prefill = form.data.lines[index].unit_cost
+            ? {}
+            : {
+                  unit_cost: product?.cost_price ?? '',
+                  unit_cost_currency: base,
+              };
+
+        updateLine(index, { product_id: productId, ...prefill });
     }
 
     function addLine() {
-        form.setData('lines', [...form.data.lines, blankLine()]);
+        form.setData('lines', [
+            ...form.data.lines,
+            blankLine(form.data.currency),
+        ]);
     }
 
     function removeLine(index: number) {
@@ -147,6 +230,7 @@ export function PurchaseForm({
             {
                 label: '',
                 amount: '',
+                amount_currency: form.data.currency,
                 allocation_method: allocationMethods[0]?.value ?? 'by_quantity',
             },
         ]);
@@ -221,18 +305,21 @@ export function PurchaseForm({
                             <FormField
                                 label="Supplier"
                                 error={form.errors.supplier_id}
+                                description="Optional — an invoice records itself without one."
                             >
                                 {(control) => (
                                     <Select
                                         value={
                                             form.data.supplier_id === null
-                                                ? ''
+                                                ? NO_SUPPLIER
                                                 : String(form.data.supplier_id)
                                         }
                                         onValueChange={(value) =>
                                             form.setData(
                                                 'supplier_id',
-                                                Number(value),
+                                                value === NO_SUPPLIER
+                                                    ? null
+                                                    : Number(value),
                                             )
                                         }
                                     >
@@ -240,9 +327,12 @@ export function PurchaseForm({
                                             {...control}
                                             className="w-full"
                                         >
-                                            <SelectValue placeholder="Choose a supplier" />
+                                            <SelectValue placeholder="No supplier" />
                                         </SelectTrigger>
                                         <SelectContent>
+                                            <SelectItem value={NO_SUPPLIER}>
+                                                No supplier
+                                            </SelectItem>
                                             {suppliers.map((supplier) => (
                                                 <SelectItem
                                                     key={supplier.id}
@@ -259,7 +349,7 @@ export function PurchaseForm({
                             <FormField
                                 label="Invoice date"
                                 error={form.errors.invoiced_on}
-                                description="Stock is taken in on this date."
+                                description="Stock is taken in on this date, at that day's exchange rate."
                             >
                                 {(control) => (
                                     <Input
@@ -276,6 +366,45 @@ export function PurchaseForm({
                                 )}
                             </FormField>
                         </div>
+
+                        {currencies.length > 1 && (
+                            <div className="grid gap-6 sm:grid-cols-2">
+                                <FormField
+                                    label="Paid in"
+                                    error={form.errors.currency}
+                                    description={`Sets the currency for every amount below. Recorded in ${base} either way.`}
+                                >
+                                    {(control) => (
+                                        <Select
+                                            value={form.data.currency}
+                                            onValueChange={(value) =>
+                                                changeInvoiceCurrency(
+                                                    String(value),
+                                                )
+                                            }
+                                        >
+                                            <SelectTrigger
+                                                {...control}
+                                                className="w-full"
+                                            >
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {currencies.map((currency) => (
+                                                    <SelectItem
+                                                        key={currency.code}
+                                                        value={currency.code}
+                                                    >
+                                                        {currency.code} —{' '}
+                                                        {currency.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    )}
+                                </FormField>
+                            </div>
+                        )}
 
                         <FormField label="Notes" error={form.errors.notes}>
                             {(control) => (
@@ -371,8 +500,7 @@ export function PurchaseForm({
                                                                 product.id,
                                                             )}
                                                         >
-                                                            {product.name} (
-                                                            {product.code})
+                                                            {product.name}
                                                         </SelectItem>
                                                     ))}
                                                 </SelectContent>
@@ -409,10 +537,7 @@ export function PurchaseForm({
                                             />
                                         </TableCell>
                                         <TableCell>
-                                            <Input
-                                                inputMode="decimal"
-                                                placeholder="0.00"
-                                                className="text-right tabular-nums"
+                                            <MoneyInput
                                                 aria-label={`Unit cost for line ${index + 1}`}
                                                 aria-invalid={
                                                     lineError(
@@ -423,37 +548,50 @@ export function PurchaseForm({
                                                         : undefined
                                                 }
                                                 value={line.unit_cost}
+                                                currency={
+                                                    line.unit_cost_currency
+                                                }
                                                 onKeyDown={(event) =>
                                                     onLineKeyDown(event, index)
                                                 }
-                                                onChange={(event) =>
+                                                onChange={(value) =>
                                                     updateLine(index, {
-                                                        unit_cost:
-                                                            event.target.value,
+                                                        unit_cost: value,
+                                                    })
+                                                }
+                                                onCurrencyChange={(currency) =>
+                                                    updateLine(index, {
+                                                        unit_cost_currency:
+                                                            currency,
                                                     })
                                                 }
                                             />
                                         </TableCell>
                                         <TableCell>
-                                            <Input
-                                                inputMode="decimal"
-                                                placeholder="0.00"
-                                                className="text-right tabular-nums"
+                                            <MoneyInput
                                                 aria-label={`Discount for line ${index + 1}`}
                                                 value={line.discount}
+                                                currency={
+                                                    line.discount_currency
+                                                }
                                                 onKeyDown={(event) =>
                                                     onLineKeyDown(event, index)
                                                 }
-                                                onChange={(event) =>
+                                                onChange={(value) =>
                                                     updateLine(index, {
-                                                        discount:
-                                                            event.target.value,
+                                                        discount: value,
+                                                    })
+                                                }
+                                                onCurrencyChange={(currency) =>
+                                                    updateLine(index, {
+                                                        discount_currency:
+                                                            currency,
                                                     })
                                                 }
                                             />
                                         </TableCell>
                                         <TableCell className="text-right font-mono tabular-nums">
-                                            {format(lineNet(line))}
+                                            {format(lineNet(line, toBase))}
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <Button
@@ -534,17 +672,23 @@ export function PurchaseForm({
                                                     />
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Input
-                                                        inputMode="decimal"
-                                                        placeholder="0.00"
-                                                        className="text-right tabular-nums"
+                                                    <MoneyInput
                                                         aria-label={`Cost amount ${index + 1}`}
                                                         value={cost.amount}
-                                                        onChange={(event) =>
+                                                        currency={
+                                                            cost.amount_currency
+                                                        }
+                                                        onChange={(value) =>
                                                             updateCost(index, {
-                                                                amount: event
-                                                                    .target
-                                                                    .value,
+                                                                amount: value,
+                                                            })
+                                                        }
+                                                        onCurrencyChange={(
+                                                            currency,
+                                                        ) =>
+                                                            updateCost(index, {
+                                                                amount_currency:
+                                                                    currency,
                                                             })
                                                         }
                                                     />
@@ -643,8 +787,11 @@ export function PurchaseForm({
                         </span>
                     </div>
                     <Separator />
+                    {/* No currency in the label: `format` puts it on the figure,
+                        and the figure follows whichever currency the user is
+                        reading in. */}
                     <div className="flex justify-between text-base font-semibold">
-                        <span>Total ({currency.code})</span>
+                        <span>Total</span>
                         <span className="font-mono tabular-nums">
                             {format(goodsTotal + costsTotal)}
                         </span>

@@ -1,9 +1,37 @@
 import type { LucideIcon } from 'lucide-react';
 
-export type Currency = {
+/** One currency an amount may be typed or read in. Mirrors config/money.php. */
+export type CurrencyOption = {
     code: string;
-    locale: string;
+    name: string;
+    symbol: string;
+    /** Decimal places to show. Dinars show none. */
+    fraction_digits: number;
+    /**
+     * Base major units per one unit of this currency, scaled by `RATE_SCALE`.
+     * The base currency is its own unit, so exactly `RATE_SCALE`.
+     */
+    rate: number;
+    /** The date that rate was recorded for, or null for the base currency. */
+    rate_on: string | null;
+    source: string | null;
 };
+
+/**
+ * Mirrors the `currency` prop from HandleInertiaRequests.
+ *
+ * Every money figure on the wire is in `base`. `display` is only what the user
+ * has asked to look at; converting for display is `useFormatMoney()`'s job.
+ */
+export type Currency = {
+    base: string;
+    display: string;
+    locale: string;
+    currencies: CurrencyOption[];
+};
+
+/** The theme the user picked. `system` follows the OS preference. */
+export type Appearance = 'light' | 'dark' | 'system';
 
 export type FlashToastType = 'success' | 'error' | 'warning' | 'info';
 

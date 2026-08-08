@@ -55,18 +55,18 @@ function isoDate(date: Date): string {
 export type ReportPeriodFilterProps = {
     period: ReportPeriod;
     presets: ReportPresetOption[];
-    /** Report name for the CSV route, e.g. `sales`. Omit to hide the button. */
-    exportAs?: string;
+    /** Offer the CSV of these figures. Off on the dashboard, which has none. */
+    exportable?: boolean;
 };
 
 /**
- * The date control every report screen carries. One filter, one URL contract,
- * so moving between reports keeps the window you were looking at.
+ * The date control the report screen and the dashboard carry. One filter, one
+ * URL contract, so moving between them keeps the window you were looking at.
  */
 export function ReportPeriodFilter({
     period,
     presets,
-    exportAs,
+    exportable = false,
 }: ReportPeriodFilterProps) {
     const currentUrl = usePage().url;
 
@@ -118,12 +118,12 @@ export function ReportPeriodFilter({
                 }
             />
 
-            {exportAs && (
+            {exportable && (
                 <Button
                     variant="outline"
                     render={
                         <a
-                            href={reports.export.url(exportAs, {
+                            href={reports.export.url({
                                 query: {
                                     from: period.from,
                                     to: period.to,

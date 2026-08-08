@@ -30,9 +30,8 @@ final class InsufficientStockException extends RuntimeException
             $requested,
             $available,
             sprintf(
-                '%s (%s): tried to issue %d but only %d in stock.',
+                '%s: tried to issue %d but only %d in stock.',
                 $product->name,
-                $product->code,
                 $requested,
                 $available,
             ),

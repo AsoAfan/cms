@@ -20,10 +20,17 @@ class ExpenseFactory extends Factory
     {
         return [
             'expense_category_id' => ExpenseCategory::factory(),
+            'title' => fake()->randomElement([
+                'Shop rent',
+                'Staff wages',
+                'Van diesel',
+                'Electricity bill',
+                'Printed flyers',
+                'Cleaning supplies',
+            ]),
             'amount' => Money::fromMinorUnits(fake()->numberBetween(500, 250_000)),
             'spent_on' => fake()->dateTimeBetween('-6 months')->format('Y-m-d'),
             'payment_method' => fake()->randomElement(PaymentMethod::cases()),
-            'reference' => fake()->optional()->bothify('INV-####'),
             'notes' => fake()->optional()->sentence(),
         ];
     }

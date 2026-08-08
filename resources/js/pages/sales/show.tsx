@@ -97,14 +97,9 @@ export default function SalesShow({ sale }: { sale: SaleDetail }) {
                                 {sale.lines.map((line) => (
                                     <TableRow key={line.id}>
                                         <TableCell>
-                                            <div className="flex flex-col">
-                                                <span className="font-medium">
-                                                    {line.product}
-                                                </span>
-                                                <span className="font-mono text-xs text-muted-foreground">
-                                                    {line.code}
-                                                </span>
-                                            </div>
+                                            <span className="font-medium">
+                                                {line.product}
+                                            </span>
                                         </TableCell>
                                         <TableCell className="text-right tabular-nums">
                                             {line.quantity}

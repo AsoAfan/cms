@@ -2,9 +2,13 @@
 
 namespace App\Http\Controllers\Catalog;
 
+use App\Enums\PaymentMethod;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Catalog\ProductRequest;
 use App\Models\Product;
+use App\Models\StockMovement;
+use App\Models\Supplier;
+use App\Queries\StockOnHandQuery;
 use App\Support\Flash;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -13,51 +17,70 @@ use Inertia\Response;
 
 class ProductController extends Controller
 {
+    public function __construct(private readonly StockOnHandQuery $onHand) {}
+
+    /**
+     * The catalogue, and the whole of the product UI: editing, creating and
+     * the one-line buy and sell both happen in drawers over this list, so a
+     * day's work never leaves the screen.
+     */
     public function index(): Response
     {
         $table = $this->table(Product::query())
-            ->searchable(['name', 'code', 'description'])
+            ->searchable(['name', 'description'])
             ->sortable([
                 'name',
-                'code',
-                'default_cost_price',
-                'default_selling_price',
-                'created_at',
-            ], default: 'name')
-            ->filterable([
-                'status' => fn (Builder $query, string $value) => $query->where('is_active', $value === 'active'),
-            ]);
+                'cost_price',
+                'selling_price',
+                // Quantity is summed from the ledger, so it is ordered by a
+                // correlated subquery rather than a column. Products that have
+                // never moved sort as zero rather than dropping out.
+                'quantity' => fn (Builder $query, string $direction) => $query->orderBy(
+                    StockMovement::query()
+                        ->selectRaw('COALESCE(SUM(quantity), 0)')
+                        ->whereColumn('product_id', 'products.id'),
+                    $direction === 'desc' ? 'desc' : 'asc',
+                ),
+            ], default: 'name');
 
-        return Inertia::render('catalog/products/index', $this->tableProps($table));
-    }
+        $paginator = $table->paginate();
+        $quantities = $this->onHand->get();
 
-    public function create(): Response
-    {
-        return Inertia::render('catalog/products/create');
+        $paginator->through(fn (Product $product): array => [
+            'id' => $product->id,
+            'name' => $product->name,
+            'description' => $product->description,
+            'cost_price' => $product->cost_price->minorUnits,
+            'selling_price' => $product->selling_price->minorUnits,
+            'quantity' => $quantities[$product->id] ?? 0,
+        ]);
+
+        return Inertia::render('catalog/products/index', [
+            'rows' => $paginator,
+            'table' => $table->state(),
+            // Both quick dialogs live on this page, so their options travel
+            // with it rather than costing a round trip on first open.
+            'suppliers' => Supplier::query()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name']),
+            'paymentMethods' => array_map(
+                static fn (PaymentMethod $method): array => [
+                    'value' => $method->value,
+                    'label' => $method->label(),
+                ],
+                PaymentMethod::cases(),
+            ),
+        ]);
     }
 
     public function store(ProductRequest $request): RedirectResponse
     {
-        $product = Product::query()->create($request->payload());
+        Product::query()->create($request->payload());
 
         Flash::success('Product created.');
 
-        return to_route('products.edit', $product);
-    }
-
-    public function edit(Product $product): Response
-    {
-        return Inertia::render('catalog/products/edit', [
-            'product' => [
-                'id' => $product->id,
-                'name' => $product->name,
-                'code' => $product->code,
-                'description' => $product->description,
-                'default_cost_price' => $product->default_cost_price?->toDecimal(),
-                'default_selling_price' => $product->default_selling_price?->toDecimal(),
-                'is_active' => $product->is_active,
-            ],
-        ]);
+        return back();
     }
 
     public function update(ProductRequest $request, Product $product): RedirectResponse
@@ -71,6 +94,14 @@ class ProductController extends Controller
 
     public function destroy(Product $product): RedirectResponse
     {
+        // The ledger must never describe a product that is gone, and the
+        // foreign key enforces that. Say so rather than letting it 500.
+        if (StockMovement::query()->where('product_id', $product->id)->exists()) {
+            Flash::error("{$product->name} has stock history and cannot be deleted.");
+
+            return back();
+        }
+
         $product->delete();
 
         Flash::success('Product deleted.');

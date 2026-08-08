@@ -17,7 +17,7 @@ use Illuminate\Database\QueryException;
 beforeEach(function () {
     $this->actingAs(User::factory()->create());
     $this->supplier = Supplier::factory()->create(['name' => 'Northwind Textiles']);
-    $this->product = Product::factory()->create(['code' => 'BEC-117-137']);
+    $this->product = Product::factory()->create(['name' => 'Blackout Eyelet Curtain 117x137']);
 });
 
 /**
@@ -191,11 +191,26 @@ it('shows a posted purchase with what each line put on the shelf', function () {
         );
 });
 
-it('needs a supplier, a date and at least one line', function () {
+it('needs a date and at least one line', function () {
     $this->post('/purchases', ['lines' => []])
-        ->assertSessionHasErrors(['supplier_id', 'invoiced_on', 'lines']);
+        ->assertSessionHasErrors(['invoiced_on', 'lines']);
 
     expect(Purchase::query()->count())->toBe(0);
+});
+
+it('records a purchase with no supplier', function () {
+    $this->post('/purchases', purchasePayload(['supplier_id' => null]))
+        ->assertSessionHasNoErrors();
+
+    $purchase = Purchase::query()->firstOrFail();
+
+    expect($purchase->supplier_id)->toBeNull()
+        ->and($purchase->total()->toDecimal())->toBe('200.00');
+
+    $this->get('/purchases')
+        ->assertInertia(fn ($page) => $page
+            ->where('rows.data.0.supplier', null)
+        );
 });
 
 it('refuses the same product twice on one invoice', function () {
@@ -256,6 +271,12 @@ it('filters purchases by status and supplier', function () {
     $this->get("/purchases?supplier_id={$this->supplier->id}")
         ->assertInertia(fn ($page) => $page->has('rows.data', 1)
             ->where('rows.data.0.number', $draft->number));
+
+    $unattributed = Purchase::factory()->create(['supplier_id' => null]);
+
+    $this->get('/purchases?supplier_id=none')
+        ->assertInertia(fn ($page) => $page->has('rows.data', 1)
+            ->where('rows.data.0.number', $unattributed->number));
 });
 
 it('refuses to delete a supplier with purchases', function () {

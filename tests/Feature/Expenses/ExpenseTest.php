@@ -21,11 +21,11 @@ function expensePayload(array $overrides = []): array
 {
     return array_merge([
         'expense_category_id' => test()->category->id,
+        'title' => 'February rent',
         'amount' => '750.00',
         'spent_on' => '2026-02-01',
         'payment_method' => PaymentMethod::Transfer->value,
-        'reference' => 'INV-0042',
-        'notes' => 'February rent.',
+        'notes' => 'Paid to the landlord.',
     ], $overrides);
 }
 
@@ -59,7 +59,7 @@ it('records an expense', function () {
 
     expect($expense->amount->toDecimal())->toBe('750.00')
         ->and($expense->payment_method)->toBe(PaymentMethod::Transfer)
-        ->and($expense->reference)->toBe('INV-0042')
+        ->and($expense->title)->toBe('February rent')
         ->and($expense->category->name)->toBe('Rent');
 });
 
@@ -69,9 +69,10 @@ it('stores the amount as integer minor units', function () {
     expect(DB::table('expenses')->value('amount'))->toBe(1234);
 });
 
-it('needs a category, an amount, a date and a payment method', function () {
+it('needs a category, a title, an amount, a date and a payment method', function () {
     $this->post('/expenses', [])->assertSessionHasErrors([
         'expense_category_id',
+        'title',
         'amount',
         'spent_on',
         'payment_method',
@@ -141,14 +142,14 @@ it('filters by category', function () {
         );
 });
 
-it('searches by reference and notes', function () {
-    Expense::factory()->for($this->category, 'category')->create(['reference' => 'INV-0042', 'notes' => null]);
-    Expense::factory()->for($this->category, 'category')->create(['reference' => null, 'notes' => 'Van fuel']);
+it('searches by title and notes', function () {
+    Expense::factory()->for($this->category, 'category')->create(['title' => 'February rent', 'notes' => null]);
+    Expense::factory()->for($this->category, 'category')->create(['title' => 'Van diesel', 'notes' => 'Motorway run']);
 
-    $this->get('/expenses?search=0042')
+    $this->get('/expenses?search=rent')
         ->assertInertia(fn ($page) => $page->has('rows.data', 1));
 
-    $this->get('/expenses?search=fuel')
+    $this->get('/expenses?search=motorway')
         ->assertInertia(fn ($page) => $page->has('rows.data', 1));
 });
 

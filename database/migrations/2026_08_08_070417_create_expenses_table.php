@@ -21,14 +21,14 @@ return new class extends Migration
             $table->id();
             $table->foreignId('expense_category_id')->constrained()->restrictOnDelete();
 
+            // What the money went on, in the words of whoever spent it —
+            // "February rent", "Van diesel". Required, because a category and an
+            // amount alone leave a row nobody can identify a month later.
+            $table->string('title');
+
             $table->bigInteger('amount');
             $table->date('spent_on');
             $table->string('payment_method');
-
-            // The receipt or invoice number, so a figure can be traced back to
-            // the piece of paper it came from.
-            $table->string('reference')->nullable();
-
             $table->text('notes')->nullable();
             $table->timestamps();
 

@@ -2,7 +2,6 @@
 
 namespace App\Support;
 
-use App\Enums\ReportInterval;
 use App\Enums\ReportPreset;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
@@ -11,8 +10,8 @@ use JsonSerializable;
 use Stringable;
 
 /**
- * The window a report covers: two inclusive dates, and the arithmetic every
- * report does with them.
+ * The window the report covers: two inclusive dates, and the arithmetic done
+ * with them.
  *
  * `from` is the start of its day and `to` is the end of its, so a period can be
  * handed straight to a `whereBetween` over a timestamp without a sale made at
@@ -124,68 +123,6 @@ final readonly class ReportPeriod implements JsonSerializable, Stringable
         );
     }
 
-    /**
-     * The bucket size a trend over this period should use.
-     */
-    public function interval(): ReportInterval
-    {
-        $days = $this->days();
-
-        return match (true) {
-            $days <= 92 => ReportInterval::Day,
-            $days <= 366 => ReportInterval::Week,
-            default => ReportInterval::Month,
-        };
-    }
-
-    /**
-     * Every bucket in the period, in order, as `Y-m-d` bucket starts.
-     *
-     * Includes the buckets where nothing happened: a gap in a trend chart
-     * reads as missing data, whereas a zero reads as a quiet week.
-     *
-     * @return list<string>
-     */
-    public function buckets(): array
-    {
-        $interval = $this->interval();
-        $cursor = CarbonImmutable::parse($interval->bucket($this->from));
-        $buckets = [];
-
-        while ($cursor->lessThanOrEqualTo($this->to)) {
-            $buckets[] = $cursor->toDateString();
-            $cursor = $interval->next($cursor);
-        }
-
-        return $buckets;
-    }
-
-    /**
-     * Fold dated totals into this period's buckets.
-     *
-     * Takes what a `GROUP BY` over a date column returns — a map of date to
-     * figure — and returns a map of bucket start to total, with every bucket
-     * in the period present and the quiet ones zero.
-     *
-     * @param  iterable<string, int|float|string>  $totals  date => figure
-     * @return array<string, int>
-     */
-    public function fold(iterable $totals): array
-    {
-        $interval = $this->interval();
-        $folded = array_fill_keys($this->buckets(), 0);
-
-        foreach ($totals as $date => $total) {
-            $bucket = $interval->bucket(CarbonImmutable::parse($date));
-
-            if (array_key_exists($bucket, $folded)) {
-                $folded[$bucket] += (int) $total;
-            }
-        }
-
-        return $folded;
-    }
-
     public function contains(DateTimeInterface $date): bool
     {
         return CarbonImmutable::instance($date)->betweenIncluded($this->from, $this->to);
@@ -251,7 +188,7 @@ final readonly class ReportPeriod implements JsonSerializable, Stringable
     }
 
     /**
-     * @return array{from: string, to: string, preset: string|null, label: string, days: int, interval: string}
+     * @return array{from: string, to: string, preset: string|null, label: string, days: int}
      */
     public function jsonSerialize(): array
     {
@@ -261,7 +198,6 @@ final readonly class ReportPeriod implements JsonSerializable, Stringable
             'preset' => $this->preset?->value,
             'label' => $this->label(),
             'days' => $this->days(),
-            'interval' => $this->interval()->value,
         ];
     }
 

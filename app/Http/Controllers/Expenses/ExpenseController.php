@@ -22,7 +22,7 @@ class ExpenseController extends Controller
     public function index(): Response
     {
         $table = $this->table(Expense::query()->with('category:id,name'))
-            ->searchable(['reference', 'notes'])
+            ->searchable(['title', 'notes'])
             ->sortable(['spent_on', 'amount'], default: 'spent_on', direction: 'desc')
             ->filterable([
                 'expense_category_id',
@@ -36,7 +36,7 @@ class ExpenseController extends Controller
         // to this screen to see.
         $filtered = Money::fromMinorUnits(
             $this->table(Expense::query())
-                ->searchable(['reference', 'notes'])
+                ->searchable(['title', 'notes'])
                 ->filterable(['expense_category_id', 'payment_method'])
                 ->dateRange('spent_on')
                 ->sum('amount')
@@ -44,13 +44,13 @@ class ExpenseController extends Controller
 
         $paginator->through(fn (Expense $expense): array => [
             'id' => $expense->id,
+            'title' => $expense->title,
             'category' => $expense->category->name,
             'category_id' => $expense->expense_category_id,
             'amount' => $expense->amount->minorUnits,
             'spent_on' => $expense->spent_on->toDateString(),
             'payment_method' => $expense->payment_method->value,
             'payment_method_label' => $expense->payment_method->label(),
-            'reference' => $expense->reference,
             'notes' => $expense->notes,
         ]);
 

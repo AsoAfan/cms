@@ -17,7 +17,7 @@ beforeEach(function () {
     $this->service = app(InventoryService::class);
     $this->onHand = app(StockOnHandQuery::class);
     $this->valuation = app(InventoryValuationQuery::class);
-    $this->product = Product::factory()->create(['name' => 'Blackout 117x137', 'code' => 'BEC-117-137']);
+    $this->product = Product::factory()->create(['name' => 'Blackout 117x137']);
 });
 
 function receive(int $quantity, string $unitCost, string $on): StockMovement
@@ -259,7 +259,7 @@ it('reports what was asked for and what was there', function () {
     } catch (InsufficientStockException $exception) {
         expect($exception->requested)->toBe(8)
             ->and($exception->available)->toBe(5)
-            ->and($exception->getMessage())->toContain('BEC-117-137');
+            ->and($exception->getMessage())->toContain('Blackout 117x137');
     }
 });
 
@@ -374,7 +374,7 @@ it('keeps each batch consumed within its own size', function () {
 });
 
 it('keeps separate products entirely separate', function () {
-    $other = Product::factory()->create(['code' => 'OTHER-1']);
+    $other = Product::factory()->create(['name' => 'Other Curtain']);
 
     receive(10, '5.00', '2026-01-01');
     $this->service->receive($other, 4, Money::fromDecimal('9.00'), occurredAt: Carbon::parse('2026-01-01'));
@@ -387,7 +387,7 @@ it('keeps separate products entirely separate', function () {
 });
 
 it('sums on-hand and valuation across the whole catalogue', function () {
-    $other = Product::factory()->create(['code' => 'OTHER-2']);
+    $other = Product::factory()->create(['name' => 'Another Curtain']);
 
     receive(10, '5.00', '2026-01-01');
     $this->service->receive($other, 4, Money::fromDecimal('9.00'), occurredAt: Carbon::parse('2026-01-01'));

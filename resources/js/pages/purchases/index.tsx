@@ -68,7 +68,10 @@ export default function PurchasesIndex({
         {
             key: 'supplier',
             header: 'Supplier',
-            cell: (row) => row.supplier,
+            cell: (row) =>
+                row.supplier ?? (
+                    <span className="text-muted-foreground">—</span>
+                ),
         },
         {
             key: 'invoiced_on',
@@ -163,6 +166,9 @@ export default function PurchasesIndex({
                             <SelectContent>
                                 <SelectItem value={ANY}>
                                     All suppliers
+                                </SelectItem>
+                                <SelectItem value="none">
+                                    No supplier
                                 </SelectItem>
                                 {suppliers.map((supplier) => (
                                     <SelectItem

@@ -19,7 +19,12 @@ use Illuminate\Support\Facades\DB;
 final class SavePurchaseAction
 {
     /**
-     * @param  array{supplier_id: int, invoiced_on: string, notes: string|null}  $header
+     * Every amount here is already in the base currency — the Form Request is the
+     * one place that converts. `currency` and `exchange_rate` on the header record
+     * what the invoice was written in and at what rate, and are the only currency
+     * this action knows about.
+     *
+     * @param  array{supplier_id: int|null, invoiced_on: string, notes: string|null, currency?: string, exchange_rate?: int}  $header
      * @param  list<array{product_id: int, quantity: int, unit_cost: string, discount: string}>  $lines
      * @param  list<array{label: string, amount: string, allocation_method: string}>  $costs
      *

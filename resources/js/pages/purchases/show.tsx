@@ -44,7 +44,11 @@ export default function PurchasesShow({
 
             <PageHeader
                 title={purchase.number}
-                description={`${purchase.supplier} · ${purchase.invoiced_on}`}
+                description={
+                    purchase.supplier
+                        ? `${purchase.supplier} · ${purchase.invoiced_on}`
+                        : purchase.invoiced_on
+                }
                 actions={
                     <>
                         {purchase.status === 'posted' ? (
@@ -97,14 +101,9 @@ export default function PurchasesShow({
                                 {purchase.lines.map((line) => (
                                     <TableRow key={line.id}>
                                         <TableCell>
-                                            <div className="flex flex-col">
-                                                <span className="font-medium">
-                                                    {line.product}
-                                                </span>
-                                                <span className="font-mono text-xs text-muted-foreground">
-                                                    {line.code}
-                                                </span>
-                                            </div>
+                                            <span className="font-medium">
+                                                {line.product}
+                                            </span>
                                         </TableCell>
                                         <TableCell className="text-right tabular-nums">
                                             {line.quantity}

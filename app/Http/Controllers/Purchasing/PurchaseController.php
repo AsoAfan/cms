@@ -15,6 +15,7 @@ use App\Models\PurchaseLine;
 use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Support\Flash;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -28,7 +29,12 @@ class PurchaseController extends Controller
             ->sortable(['number', 'invoiced_on', 'status'], default: 'invoiced_on', direction: 'desc')
             ->filterable([
                 'status',
-                'supplier_id',
+                // `none` finds the invoices nobody was named on — otherwise the
+                // one thing an optional field guarantees is a pile of rows with
+                // no way to pick them out.
+                'supplier_id' => fn (Builder $query, string $value) => $value === 'none'
+                    ? $query->whereNull('supplier_id')
+                    : $query->where('supplier_id', $value),
             ]);
 
         $paginator = $table->paginate();
@@ -36,7 +42,7 @@ class PurchaseController extends Controller
         $paginator->through(fn (Purchase $purchase): array => [
             'id' => $purchase->id,
             'number' => $purchase->number,
-            'supplier' => $purchase->supplier->name,
+            'supplier' => $purchase->supplier?->name,
             'invoiced_on' => $purchase->invoiced_on->toDateString(),
             'status' => $purchase->status->value,
             'lines_count' => $purchase->lines_count,
@@ -89,16 +95,22 @@ class PurchaseController extends Controller
                 'supplier_id' => $purchase->supplier_id,
                 'invoiced_on' => $purchase->invoiced_on->toDateString(),
                 'notes' => $purchase->notes,
+                // Amounts are stored in the base currency, so the form reopens
+                // in it whatever the invoice was originally typed in.
+                'currency' => config('money.currency'),
                 'lines' => $purchase->lines->map(fn (PurchaseLine $line): array => [
                     'product_id' => $line->product_id,
                     'quantity' => $line->quantity,
                     'unit_cost' => $line->unit_cost->toDecimal(),
+                    'unit_cost_currency' => config('money.currency'),
                     'discount' => $line->discount->toDecimal(),
+                    'discount_currency' => config('money.currency'),
                 ])->values(),
                 'additional_costs' => $purchase->additionalCosts->map(
                     fn (PurchaseAdditionalCost $cost): array => [
                         'label' => $cost->label,
                         'amount' => $cost->amount->toDecimal(),
+                        'amount_currency' => config('money.currency'),
                         'allocation_method' => $cost->allocation_method->value,
                     ]
                 )->values(),
@@ -169,9 +181,11 @@ class PurchaseController extends Controller
         return [
             'id' => $purchase->id,
             'number' => $purchase->number,
-            'supplier' => $purchase->supplier->name,
+            'supplier' => $purchase->supplier?->name,
             'invoiced_on' => $purchase->invoiced_on->toDateString(),
             'status' => $purchase->status->value,
+            'currency' => $purchase->currency,
+            'exchange_rate' => $purchase->exchangeRate(),
             'notes' => $purchase->notes,
             'posted_at' => $purchase->posted_at?->toDateTimeString(),
             'goods_total' => $purchase->goodsTotal()->minorUnits,
@@ -180,7 +194,6 @@ class PurchaseController extends Controller
             'lines' => $purchase->lines->map(fn (PurchaseLine $line): array => [
                 'id' => $line->id,
                 'product' => $line->product->name,
-                'code' => $line->product->code,
                 'quantity' => $line->quantity,
                 'unit_cost' => $line->unit_cost->minorUnits,
                 'discount' => $line->discount->minorUnits,
@@ -217,14 +230,12 @@ class PurchaseController extends Controller
                 ->orderBy('name')
                 ->get(['id', 'name']),
             'products' => Product::query()
-                ->where('is_active', true)
                 ->orderBy('name')
-                ->get(['id', 'name', 'code', 'default_cost_price'])
+                ->get(['id', 'name', 'cost_price'])
                 ->map(fn (Product $product): array => [
                     'id' => $product->id,
                     'name' => $product->name,
-                    'code' => $product->code,
-                    'default_cost_price' => $product->default_cost_price?->toDecimal(),
+                    'cost_price' => $product->cost_price->toDecimal(),
                 ]),
             'allocationMethods' => collect(CostAllocationMethod::cases())->map(
                 fn (CostAllocationMethod $method): array => [

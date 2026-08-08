@@ -72,6 +72,8 @@ class SaleController extends Controller
                 'sold_on' => $sale->sold_on->toDateString(),
                 'status' => $sale->status->value,
                 'payment_method' => $sale->payment_method->label(),
+                'currency' => $sale->currency,
+                'exchange_rate' => $sale->exchangeRate(),
                 'notes' => $sale->notes,
                 'posted_at' => $sale->posted_at?->toDateTimeString(),
                 'total' => $sale->total()->minorUnits,
@@ -80,7 +82,6 @@ class SaleController extends Controller
                 'lines' => $sale->lines->map(fn (SaleLine $line): array => [
                     'id' => $line->id,
                     'product' => $line->product->name,
-                    'code' => $line->product->code,
                     'quantity' => $line->quantity,
                     'unit_price' => $line->unit_price->minorUnits,
                     'discount' => $line->discount->minorUnits,
@@ -108,11 +109,16 @@ class SaleController extends Controller
                 'sold_on' => $sale->sold_on->toDateString(),
                 'payment_method' => $sale->payment_method->value,
                 'notes' => $sale->notes,
+                // Amounts are stored in the base currency, so the form reopens
+                // in it whatever the sale was originally rung up in.
+                'currency' => config('money.currency'),
                 'lines' => $sale->lines->map(fn (SaleLine $line): array => [
                     'product_id' => $line->product_id,
                     'quantity' => $line->quantity,
                     'unit_price' => $line->unit_price->toDecimal(),
+                    'unit_price_currency' => config('money.currency'),
                     'discount' => $line->discount->toDecimal(),
+                    'discount_currency' => config('money.currency'),
                 ])->values(),
             ],
         ]);
@@ -178,14 +184,12 @@ class SaleController extends Controller
             // On-hand travels with each product so the till can warn before
             // someone rings up something that is not there.
             'products' => Product::query()
-                ->where('is_active', true)
                 ->orderBy('name')
-                ->get(['id', 'name', 'code', 'default_selling_price'])
+                ->get(['id', 'name', 'selling_price'])
                 ->map(fn (Product $product): array => [
                     'id' => $product->id,
                     'name' => $product->name,
-                    'code' => $product->code,
-                    'default_selling_price' => $product->default_selling_price?->toDecimal(),
+                    'selling_price' => $product->selling_price->toDecimal(),
                     'on_hand' => $quantities[$product->id] ?? 0,
                 ]),
         ];

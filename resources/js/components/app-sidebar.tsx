@@ -1,7 +1,6 @@
 import { Link, usePage } from '@inertiajs/react';
 import {
     BadgeDollarSign,
-    Boxes,
     ChartLine,
     LayoutDashboard,
     Package,
@@ -29,7 +28,6 @@ import products from '@/routes/products';
 import purchases from '@/routes/purchases';
 import reports from '@/routes/reports';
 import sales from '@/routes/sales';
-import stock from '@/routes/stock';
 import suppliers from '@/routes/suppliers';
 import type { NavGroup } from '@/types';
 
@@ -52,31 +50,30 @@ const navigation: NavGroup[] = [
         label: 'Catalogue',
         items: [
             { title: 'Products', href: products.index.url(), icon: Package },
-            { title: 'Stock', href: stock.index.url(), icon: Boxes },
         ],
     },
     {
         label: 'Trade',
         items: [
-            {
+            /*{
                 title: 'Purchases',
                 href: purchases.index.url(),
                 icon: ShoppingCart,
             },
-            { title: 'Sales', href: sales.index.url(), icon: Receipt },
+            { title: 'Sales', href: sales.index.url(), icon: Receipt },*/
             { title: 'Expenses', href: expenses.index.url(), icon: Wallet },
         ],
     },
-    {
+    /*{
         label: 'Contacts',
         items: [
             { title: 'Suppliers', href: suppliers.index.url(), icon: Truck },
         ],
-    },
+    },*/
     {
         label: 'Analysis',
         items: [
-            { title: 'Reports', href: reports.summary.url(), icon: ChartLine },
+            { title: 'Reports', href: reports.index.url(), icon: ChartLine },
         ],
     },
 ];
@@ -98,11 +95,11 @@ export function AppSidebar() {
                             </div>
                             <div className="grid flex-1 text-left leading-tight">
                                 <span className="truncate font-medium">
-                                    {props.name}
+                                    CMS
                                 </span>
-                                <span className="truncate text-xs text-muted-foreground">
-                                    Sales
-                                </span>
+                                {/*<span className="truncate text-xs text-muted-foreground">*/}
+                                {/*    Sales*/}
+                                {/*</span>*/}
                             </div>
                         </SidebarMenuButton>
                     </SidebarMenuItem>

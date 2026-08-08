@@ -1,56 +1,49 @@
-import { Head } from '@inertiajs/react';
+import { Head, usePage } from '@inertiajs/react';
+import { useMemo } from 'react';
 
 import { MoneyDisplay } from '@/components/money-display';
 import { PageHeader } from '@/components/page-header';
-import { ReportNav } from '@/components/reports/report-nav';
+import {
+    ActivityTable,
+    combineActivity,
+} from '@/components/reports/activity-table';
 import { ReportPeriodFilter } from '@/components/reports/report-period-filter';
 import { StatTile } from '@/components/reports/stat-tile';
-import { TrendChart } from '@/components/reports/trend-chart';
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from '@/components/ui/card';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppLayout from '@/layouts/app-layout';
-import { formatPercent } from '@/lib/money';
 import type { BreadcrumbItem } from '@/types';
-import type {
-    InventorySummary,
-    PeriodProps,
-    ProfitReport,
-    ProfitSeriesRow,
-    PurchaseReport,
-} from '@/types/reports';
+import type { Activity, CashFlow, PeriodProps } from '@/types/reports';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Reports' }];
 
-export default function ReportsSummary({
+/** The tabs this screen offers, in the order it shows them. */
+const TABS = ['totals', 'sale', 'purchase', 'expense'] as const;
+
+type ReportTab = (typeof TABS)[number];
+
+/**
+ * The tab named in the URL, so the dashboard's "View all" lands on the one the
+ * user was already looking at. Anything unrecognised falls back to the totals.
+ */
+function requestedTab(url: string): ReportTab {
+    const asked = new URLSearchParams(url.split('?')[1] ?? '').get('tab');
+
+    return TABS.includes(asked as ReportTab) ? (asked as ReportTab) : 'totals';
+}
+
+export default function Reports({
     period,
     presets,
-    profit,
+    cashFlow,
     previous,
-    series,
-    purchases,
-    inventory,
+    activity,
 }: PeriodProps & {
-    profit: ProfitReport;
-    previous: ProfitReport;
-    series: ProfitSeriesRow[];
-    purchases: PurchaseReport;
-    inventory: InventorySummary;
+    cashFlow: CashFlow;
+    previous: CashFlow;
+    activity: Activity;
 }) {
-    const grossMargin = formatPercent(profit.gross_profit, profit.revenue);
-    const netMargin = formatPercent(profit.net_profit, profit.revenue);
+    const url = usePage().url;
+    const combined = useMemo(() => combineActivity(activity), [activity]);
 
     return (
         <>
@@ -58,247 +51,94 @@ export default function ReportsSummary({
 
             <PageHeader
                 title="Reports"
-                description={`Every figure derived from the transactions in ${period.label.toLowerCase()}.`}
+                description={`Money in and out over ${period.label.toLowerCase()}.`}
                 actions={
                     <ReportPeriodFilter
                         period={period}
                         presets={presets}
-                        exportAs="summary"
+                        exportable
                     />
                 }
             />
 
-            <ReportNav period={period} />
+            <Tabs defaultValue={requestedTab(url)} className="gap-4">
+                <TabsList variant="line">
+                    <TabsTrigger value="totals">Totals</TabsTrigger>
+                    <TabsTrigger value="sale">Sales</TabsTrigger>
+                    <TabsTrigger value="purchase">Purchases</TabsTrigger>
+                    <TabsTrigger value="expense">Expenses</TabsTrigger>
+                </TabsList>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <StatTile
-                    label="Revenue"
-                    value={profit.revenue}
-                    money
-                    previous={previous.revenue}
-                    hint={`${profit.invoice_count} invoices`}
-                />
-                <StatTile
-                    label="Cost of goods sold"
-                    value={profit.cost_of_goods_sold}
-                    money
-                    previous={previous.cost_of_goods_sold}
-                    hint={`${profit.units} units`}
-                />
-                <StatTile
-                    label="Gross profit"
-                    value={profit.gross_profit}
-                    money
-                    colored
-                    previous={previous.gross_profit}
-                    hint={grossMargin ? `${grossMargin} margin` : undefined}
-                />
-                <StatTile
-                    label="Net profit"
-                    value={profit.net_profit}
-                    money
-                    colored
-                    previous={previous.net_profit}
-                    hint={netMargin ? `${netMargin} margin` : undefined}
-                />
-            </div>
-
-            <Card>
-                <CardHeader>
-                    <CardTitle>Trend</CardTitle>
-                    <CardDescription>
-                        Takings against what was left after the goods and the
-                        running costs.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <TrendChart
-                        interval={period.interval}
-                        buckets={series.map((row) => row.bucket)}
-                        series={[
-                            {
-                                key: 'revenue',
-                                label: 'Revenue',
-                                shape: 'area',
-                                values: series.map((row) => row.revenue),
-                            },
-                            {
-                                key: 'net_profit',
-                                label: 'Net profit',
-                                shape: 'line',
-                                values: series.map((row) => row.net_profit),
-                            },
-                        ]}
-                    />
-                </CardContent>
-            </Card>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Profit and loss</CardTitle>
-                        <CardDescription>
-                            Expenses come off at the end. Buying stock never
-                            appears — it becomes a cost only when it sells.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex flex-col gap-2 text-sm">
-                        <Line label="Revenue" amount={profit.revenue} />
-                        <Line
-                            label="Less cost of goods sold"
-                            amount={-profit.cost_of_goods_sold}
+                <TabsContent value="totals" className="flex flex-col gap-4">
+                    <div className="grid gap-4 sm:grid-cols-3">
+                        <StatTile
+                            label="Income"
+                            value={cashFlow.income}
+                            money
+                            previous={previous.income}
+                            hint="Taken on posted sales"
                         />
-                        <Line
-                            label="Gross profit"
-                            amount={profit.gross_profit}
-                            strong
+                        <StatTile
+                            label="Outcome"
+                            value={cashFlow.outcome}
+                            money
+                            previous={previous.outcome}
+                            hint={
+                                <span className="inline-flex flex-wrap gap-x-1">
+                                    <MoneyDisplay amount={cashFlow.purchases} />{' '}
+                                    of stock ·
+                                    <MoneyDisplay
+                                        amount={cashFlow.expenses}
+                                    />{' '}
+                                    of expenses
+                                </span>
+                            }
                         />
-                        <Line label="Less expenses" amount={-profit.expenses} />
-                        <Line
-                            label="Net profit"
-                            amount={profit.net_profit}
-                            strong
+                        <StatTile
+                            label="Net"
+                            value={cashFlow.net}
+                            money
                             colored
+                            previous={previous.net}
+                            hint="Income less outcome"
                         />
-                    </CardContent>
-                </Card>
+                    </div>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Averages</CardTitle>
-                        <CardDescription>
-                            Over {profit.days}{' '}
-                            {profit.days === 1 ? 'day' : 'days'}. A month is the
-                            mean 30.44 days, so these hold whatever length of
-                            period they were measured over.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="overflow-x-auto rounded-lg border">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Per</TableHead>
-                                        <TableHead className="text-right">
-                                            Income
-                                        </TableHead>
-                                        <TableHead className="text-right">
-                                            Outcome
-                                        </TableHead>
-                                        <TableHead className="text-right">
-                                            Net profit
-                                        </TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {(
-                                        [
-                                            'per_day',
-                                            'per_week',
-                                            'per_month',
-                                        ] as const
-                                    ).map((key) => (
-                                        <TableRow key={key}>
-                                            <TableCell className="text-muted-foreground">
-                                                {key.replace('per_', '')}
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                <MoneyDisplay
-                                                    amount={
-                                                        profit.averages.income[
-                                                            key
-                                                        ]
-                                                    }
-                                                />
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                <MoneyDisplay
-                                                    amount={
-                                                        profit.averages.outcome[
-                                                            key
-                                                        ]
-                                                    }
-                                                />
-                                            </TableCell>
-                                            <TableCell className="text-right font-medium">
-                                                <MoneyDisplay
-                                                    amount={
-                                                        profit.averages
-                                                            .net_profit[key]
-                                                    }
-                                                    colored
-                                                />
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                        </div>
-                        <p className="mt-3 text-xs text-muted-foreground">
-                            Outcome is the goods sold plus the running costs, so
-                            income less outcome is exactly net profit.
-                        </p>
-                    </CardContent>
-                </Card>
-            </div>
+                    <ActivityTable
+                        tab="all"
+                        rows={combined}
+                        emptyDescription="Posted documents appear here once there are some in this period."
+                    />
+                </TabsContent>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <StatTile
-                    label="Bought in"
-                    value={purchases.total}
-                    money
-                    hint={`${purchases.invoice_count} invoices · ${purchases.units} units`}
-                />
-                <StatTile
-                    label="Expenses"
-                    value={profit.expenses}
-                    money
-                    previous={previous.expenses}
-                />
-                <StatTile
-                    label="Stock on hand"
-                    value={inventory.total_value}
-                    money
-                    hint="At cost, at the end of the period"
-                />
-                <StatTile
-                    label="Dead stock"
-                    value={inventory.dead_value}
-                    money
-                    hint={`${inventory.dead_count} products with nothing sold`}
-                />
-            </div>
+                <TabsContent value="sale">
+                    <ActivityTable
+                        tab="sale"
+                        rows={activity.sales}
+                        total={cashFlow.income}
+                    />
+                </TabsContent>
+
+                <TabsContent value="purchase">
+                    <ActivityTable
+                        tab="purchase"
+                        rows={activity.purchases}
+                        total={cashFlow.purchases}
+                    />
+                </TabsContent>
+
+                <TabsContent value="expense">
+                    <ActivityTable
+                        tab="expense"
+                        rows={activity.expenses}
+                        total={cashFlow.expenses}
+                    />
+                </TabsContent>
+            </Tabs>
         </>
     );
 }
 
-function Line({
-    label,
-    amount,
-    strong = false,
-    colored = false,
-}: {
-    label: string;
-    amount: number;
-    strong?: boolean;
-    colored?: boolean;
-}) {
-    return (
-        <div
-            className={
-                strong
-                    ? 'flex items-center justify-between border-t pt-2 font-medium'
-                    : 'flex items-center justify-between'
-            }
-        >
-            <span className={strong ? undefined : 'text-muted-foreground'}>
-                {label}
-            </span>
-            <MoneyDisplay amount={amount} colored={colored} />
-        </div>
-    );
-}
-
-ReportsSummary.layout = (page: React.ReactNode) => (
+Reports.layout = (page: React.ReactNode) => (
     <AppLayout breadcrumbs={breadcrumbs}>{page}</AppLayout>
 );

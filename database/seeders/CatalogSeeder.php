@@ -15,28 +15,30 @@ class CatalogSeeder extends Seeder
      *
      * Each size is its own product, counted in whole pieces — which is what
      * keeps stock and costing on whole numbers all the way through.
+     *
+     * Priced in dinars, the currency everything is stored in. The old figures
+     * here were dollars at roughly a 1,320 rate; these are the same goods at
+     * prices a shop would actually write on them.
      */
     public function run(): void
     {
         $products = [
-            ['Blackout Eyelet Curtain 117x137', 'BEC-117-137', '18.00', '44.00'],
-            ['Blackout Eyelet Curtain 117x183', 'BEC-117-183', '21.00', '52.00'],
-            ['Blackout Eyelet Curtain 168x183', 'BEC-168-183', '26.00', '64.00'],
-            ['Blackout Eyelet Curtain 229x229', 'BEC-229-229', '34.00', '82.00'],
-            ['Voile Panel 117 Ivory', 'VOI-117-IVO', '6.50', '16.00'],
-            ['Voile Panel 168 Charcoal', 'VOI-168-CHA', '8.00', '19.50'],
-            ['Curtain Hook Pack (50)', 'HOOK-50', '1.20', '3.95'],
-            ['Metal Curtain Pole 180cm', 'POLE-180', '9.40', '24.00'],
+            ['Blackout Eyelet Curtain 117x137', '24000', '58000'],
+            ['Blackout Eyelet Curtain 117x183', '28000', '68500'],
+            ['Blackout Eyelet Curtain 168x183', '34500', '84500'],
+            ['Blackout Eyelet Curtain 229x229', '45000', '108000'],
+            ['Voile Panel 117 Ivory', '8500', '21000'],
+            ['Voile Panel 168 Charcoal', '10500', '25500'],
+            ['Curtain Hook Pack (50)', '1500', '5250'],
+            ['Metal Curtain Pole 180cm', '12500', '31500'],
         ];
 
-        foreach ($products as [$name, $code, $cost, $price]) {
+        foreach ($products as [$name, $cost, $price]) {
             Product::query()->firstOrCreate(
-                ['code' => $code],
+                ['name' => $name],
                 [
-                    'name' => $name,
-                    'default_cost_price' => $cost,
-                    'default_selling_price' => $price,
-                    'is_active' => true,
+                    'cost_price' => $cost,
+                    'selling_price' => $price,
                 ]
             );
         }

@@ -17,3 +17,5 @@ Averages: a month is the mean 365.25/12 = **30.4375** days, held as an exact fra
 Presets never run past today: "this month" on the 8th is eight days, not a month with three weeks of zeroes dragging every average down. `App\Enums\ReportPreset` mirrors the frontend `DateRangePicker` presets exactly, so a preset means the same thing at both ends of the wire.
 
 The class is facade-free on purpose (uses `CarbonImmutable` directly), so all of it is unit-testable without a database or a request.
+
+It has **no bucketing**. `interval()`, `buckets()`, `fold()` and `App\Enums\ReportInterval` existed for a trend chart that was removed with the rest of the report screens, and went with it rather than staying as dead code. Anything wanting a series again brings its own — and should ask first, since the reporting screen is deliberately three figures (see `.ai/rules/queries.md`).

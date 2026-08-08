@@ -6,6 +6,7 @@ export type ExpenseCategoryRow = {
 
 export type ExpenseRow = {
     id: number;
+    title: string;
     category: string;
     category_id: number;
     /** Minor units. */
@@ -13,7 +14,6 @@ export type ExpenseRow = {
     spent_on: string;
     payment_method: string;
     payment_method_label: string;
-    reference: string | null;
     notes: string | null;
 };
 

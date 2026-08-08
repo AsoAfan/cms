@@ -93,9 +93,8 @@ final class PostSaleAction
 
             if ($available < $needed) {
                 $shortages[] = sprintf(
-                    '%s (%s) needs %d, has %d',
+                    '%s needs %d, has %d',
                     $line->product->name,
-                    $line->product->code,
                     $needed,
                     $available,
                 );

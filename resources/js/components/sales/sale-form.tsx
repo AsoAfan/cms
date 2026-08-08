@@ -3,6 +3,7 @@ import { Search, Trash2 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 
 import { FormField } from '@/components/form-field';
+import { MoneyInput } from '@/components/money-input';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -37,8 +38,13 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
-import { useCurrency, useFormatMoney } from '@/hooks/use-currency';
-import { parseMoney } from '@/lib/money';
+import {
+    useCurrency,
+    useFormatMoney,
+    useRestate,
+    useToBase,
+} from '@/hooks/use-currency';
+import { todayIso } from '@/lib/date';
 import type {
     PaymentMethodOption,
     SaleFormData,
@@ -56,17 +62,27 @@ export type SaleFormProps = {
     submitLabel: string;
 };
 
-/** Minor units for one line: quantity x price, less the discount. */
-function lineNet(line: SaleLineForm): number {
+/**
+ * Base-currency minor units for one line: quantity x price, less the discount.
+ *
+ * Each amount is converted from whatever it was typed in before anything is
+ * multiplied or subtracted — a running total means nothing otherwise once one
+ * line is in dollars and the next is in dinars.
+ */
+function lineNet(
+    line: SaleLineForm,
+    toBase: (value: string, currency: string) => number,
+): number {
     const quantity = Number(line.quantity);
-    const price = parseMoney(line.unit_price) ?? 0;
-    const discount = parseMoney(line.discount) ?? 0;
 
     if (!Number.isFinite(quantity) || quantity < 0) {
         return 0;
     }
 
-    return quantity * price - discount;
+    return (
+        quantity * toBase(line.unit_price, line.unit_price_currency) -
+        toBase(line.discount, line.discount_currency)
+    );
 }
 
 export function SaleForm({
@@ -78,24 +94,59 @@ export function SaleForm({
     headerActions,
     submitLabel,
 }: SaleFormProps) {
-    const currency = useCurrency();
+    const { base, currencies } = useCurrency();
     const format = useFormatMoney();
+    const toBase = useToBase();
+    const restate = useRestate();
     const scanRef = useRef<HTMLInputElement>(null);
     const [scan, setScan] = useState('');
     const [scanError, setScanError] = useState<string | null>(null);
 
     const form = useForm<SaleFormData>({
-        sold_on: sale?.sold_on ?? new Date().toISOString().slice(0, 10),
+        sold_on: sale?.sold_on ?? todayIso(),
         payment_method:
             sale?.payment_method ?? paymentMethods[0]?.value ?? 'cash',
+        currency: sale?.currency ?? base,
         notes: sale?.notes ?? '',
         lines: sale?.lines ?? [],
     });
 
     const total = useMemo(
-        () => form.data.lines.reduce((sum, line) => sum + lineNet(line), 0),
-        [form.data.lines],
+        () =>
+            form.data.lines.reduce(
+                (sum, line) => sum + lineNet(line, toBase),
+                0,
+            ),
+        [form.data.lines, toBase],
     );
+
+    /**
+     * Changing what the customer paid in carries every amount still on the old
+     * currency across with it — converting each one, exactly as a field's own
+     * dropdown does — and leaves alone any field switched by hand.
+     */
+    function changeSaleCurrency(next: string) {
+        const previous = form.data.currency;
+        const moved = (currency: string) => currency === previous;
+        const follow = (value: string, currency: string) =>
+            moved(currency) ? restate(value, currency, next) : value;
+
+        form.setData((data) => ({
+            ...data,
+            currency: next,
+            lines: data.lines.map((line) => ({
+                ...line,
+                unit_price: follow(line.unit_price, line.unit_price_currency),
+                unit_price_currency: moved(line.unit_price_currency)
+                    ? next
+                    : line.unit_price_currency,
+                discount: follow(line.discount, line.discount_currency),
+                discount_currency: moved(line.discount_currency)
+                    ? next
+                    : line.discount_currency,
+            })),
+        }));
+    }
 
     const byId = useMemo(
         () => new Map(products.map((product) => [product.id, product])),
@@ -103,10 +154,12 @@ export function SaleForm({
     );
 
     /**
-     * Type or scan a code and press Enter. A product already on the sale gets
-     * one more rather than a second line, which is what a till should do.
+     * Type a name and press Enter. An exact name wins over a partial one, so
+     * "Voile Panel 117" does not get beaten by a longer name containing it. A
+     * product already on the sale gets one more rather than a second line,
+     * which is what a till should do.
      */
-    function addByCode(term: string) {
+    function addByName(term: string) {
         const needle = term.trim().toLowerCase();
 
         if (needle === '') {
@@ -115,7 +168,7 @@ export function SaleForm({
 
         const product =
             products.find(
-                (candidate) => candidate.code.toLowerCase() === needle,
+                (candidate) => candidate.name.toLowerCase() === needle,
             ) ??
             products.find((candidate) =>
                 candidate.name.toLowerCase().includes(needle),
@@ -149,8 +202,12 @@ export function SaleForm({
             {
                 product_id: product.id,
                 quantity: '1',
-                unit_price: product.default_selling_price ?? '',
+                // The catalogue price is held in the base currency, so the field
+                // opens in the base currency to match it.
+                unit_price: product.selling_price,
+                unit_price_currency: base,
                 discount: '',
+                discount_currency: form.data.currency,
             },
         ]);
     }
@@ -205,8 +262,8 @@ export function SaleForm({
                 <CardHeader>
                     <CardTitle>Items</CardTitle>
                     <CardDescription>
-                        Type or scan a code and press Enter. Scanning the same
-                        code again adds one more.
+                        Type a product name and press Enter. Entering the same
+                        one again adds another.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
@@ -216,8 +273,8 @@ export function SaleForm({
                                 ref={scanRef}
                                 value={scan}
                                 autoFocus
-                                placeholder="Scan or type a code"
-                                aria-label="Scan or type a product code"
+                                placeholder="Type a product name"
+                                aria-label="Add a product by name"
                                 aria-invalid={scanError ? true : undefined}
                                 onChange={(event) => {
                                     setScan(event.target.value);
@@ -226,7 +283,7 @@ export function SaleForm({
                                 onKeyDown={(event) => {
                                     if (event.key === 'Enter') {
                                         event.preventDefault();
-                                        addByCode(scan);
+                                        addByName(scan);
                                     }
                                 }}
                             />
@@ -287,15 +344,10 @@ export function SaleForm({
                                         return (
                                             <TableRow key={index}>
                                                 <TableCell>
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">
-                                                            {product?.name ??
-                                                                'Unknown'}
-                                                        </span>
-                                                        <span className="font-mono text-xs text-muted-foreground">
-                                                            {product?.code}
-                                                        </span>
-                                                    </div>
+                                                    <span className="font-medium">
+                                                        {product?.name ??
+                                                            'Unknown'}
+                                                    </span>
                                                     {short && (
                                                         <Badge
                                                             variant="outline"
@@ -331,10 +383,7 @@ export function SaleForm({
                                                     />
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Input
-                                                        inputMode="decimal"
-                                                        placeholder="0.00"
-                                                        className="text-right tabular-nums"
+                                                    <MoneyInput
                                                         aria-label={`Price for ${product?.name ?? 'line'}`}
                                                         aria-invalid={
                                                             lineError(
@@ -345,33 +394,51 @@ export function SaleForm({
                                                                 : undefined
                                                         }
                                                         value={line.unit_price}
-                                                        onChange={(event) =>
+                                                        currency={
+                                                            line.unit_price_currency
+                                                        }
+                                                        onChange={(value) =>
                                                             updateLine(index, {
                                                                 unit_price:
-                                                                    event.target
-                                                                        .value,
+                                                                    value,
+                                                            })
+                                                        }
+                                                        onCurrencyChange={(
+                                                            currency,
+                                                        ) =>
+                                                            updateLine(index, {
+                                                                unit_price_currency:
+                                                                    currency,
                                                             })
                                                         }
                                                     />
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Input
-                                                        inputMode="decimal"
-                                                        placeholder="0.00"
-                                                        className="text-right tabular-nums"
+                                                    <MoneyInput
                                                         aria-label={`Discount for ${product?.name ?? 'line'}`}
                                                         value={line.discount}
-                                                        onChange={(event) =>
+                                                        currency={
+                                                            line.discount_currency
+                                                        }
+                                                        onChange={(value) =>
                                                             updateLine(index, {
-                                                                discount:
-                                                                    event.target
-                                                                        .value,
+                                                                discount: value,
+                                                            })
+                                                        }
+                                                        onCurrencyChange={(
+                                                            currency,
+                                                        ) =>
+                                                            updateLine(index, {
+                                                                discount_currency:
+                                                                    currency,
                                                             })
                                                         }
                                                     />
                                                 </TableCell>
                                                 <TableCell className="text-right font-mono tabular-nums">
-                                                    {format(lineNet(line))}
+                                                    {format(
+                                                        lineNet(line, toBase),
+                                                    )}
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     <Button
@@ -460,6 +527,52 @@ export function SaleForm({
                                 </FormField>
                             </div>
 
+                            {currencies.length > 1 && (
+                                <div className="grid gap-6 sm:grid-cols-2">
+                                    <FormField
+                                        label="Paid in"
+                                        error={form.errors.currency}
+                                        description={`Sets the currency for every price above. Recorded in ${base} either way.`}
+                                    >
+                                        {(control) => (
+                                            <Select
+                                                value={form.data.currency}
+                                                onValueChange={(value) =>
+                                                    changeSaleCurrency(
+                                                        String(value),
+                                                    )
+                                                }
+                                            >
+                                                <SelectTrigger
+                                                    {...control}
+                                                    className="w-full"
+                                                >
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {currencies.map(
+                                                        (currency) => (
+                                                            <SelectItem
+                                                                key={
+                                                                    currency.code
+                                                                }
+                                                                value={
+                                                                    currency.code
+                                                                }
+                                                            >
+                                                                {currency.code}{' '}
+                                                                —{' '}
+                                                                {currency.name}
+                                                            </SelectItem>
+                                                        ),
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+                                        )}
+                                    </FormField>
+                                </div>
+                            )}
+
                             <FormField label="Notes" error={form.errors.notes}>
                                 {(control) => (
                                     <Textarea
@@ -488,8 +601,11 @@ export function SaleForm({
                             </span>
                         </div>
                         <Separator />
+                        {/* No currency in the label: `format` puts it on the
+                            figure, which follows whichever currency the user is
+                            reading in. */}
                         <div className="flex justify-between text-xl font-semibold">
-                            <span>Total ({currency.code})</span>
+                            <span>Total</span>
                             <span className="font-mono tabular-nums">
                                 {format(total)}
                             </span>

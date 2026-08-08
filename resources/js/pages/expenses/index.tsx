@@ -9,6 +9,7 @@ import type { DateRange } from '@/components/date-range-picker';
 import { EmptyState } from '@/components/empty-state';
 import { FormField } from '@/components/form-field';
 import { MoneyDisplay } from '@/components/money-display';
+import { MoneyInput } from '@/components/money-input';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useCurrency } from '@/hooks/use-currency';
 import AppLayout from '@/layouts/app-layout';
+import { toDecimalString } from '@/lib/money';
 import expenseCategories from '@/routes/expense-categories';
 import { destroy, store, update } from '@/routes/expenses';
 import type { BreadcrumbItem, Paginated, TableState } from '@/types';
@@ -47,10 +49,14 @@ const ANY = 'any';
 
 type ExpenseForm = {
     expense_category_id: string;
+    title: string;
     amount: string;
+    /** What the amount is being typed in; the server converts to the base. */
+    amount_currency: string;
+    /** What the money actually changed hands in, recorded on the expense. */
+    currency: string;
     spent_on: string;
     payment_method: string;
-    reference: string;
     notes: string;
 };
 
@@ -71,17 +77,19 @@ export default function ExpensesIndex({
     paymentMethods: PaymentMethodOption[];
     filteredTotal: number;
 }) {
-    const currency = useCurrency();
+    const { base } = useCurrency();
     const [editing, setEditing] = useState<ExpenseRow | null>(null);
     const [open, setOpen] = useState(false);
     const [managingCategories, setManagingCategories] = useState(false);
 
     const form = useForm<ExpenseForm>({
         expense_category_id: '',
+        title: '',
         amount: '',
+        amount_currency: base,
+        currency: base,
         spent_on: today(),
         payment_method: paymentMethods[0]?.value ?? 'cash',
-        reference: '',
         notes: '',
     });
 
@@ -110,10 +118,12 @@ export default function ExpensesIndex({
     function openCreate() {
         form.setData({
             expense_category_id: String(categories[0]?.id ?? ''),
+            title: '',
             amount: '',
+            amount_currency: base,
+            currency: base,
             spent_on: today(),
             payment_method: paymentMethods[0]?.value ?? 'cash',
-            reference: '',
             notes: '',
         });
         form.clearErrors();
@@ -124,10 +134,14 @@ export default function ExpensesIndex({
     function openEdit(row: ExpenseRow) {
         form.setData({
             expense_category_id: String(row.category_id),
-            amount: (row.amount / 100).toFixed(2),
+            title: row.title,
+            // Stored in the base currency, so the field reopens in it whatever
+            // it was originally typed in.
+            amount: toDecimalString(row.amount),
+            amount_currency: base,
+            currency: base,
             spent_on: row.spent_on,
             payment_method: row.payment_method,
-            reference: row.reference ?? '',
             notes: row.notes ?? '',
         });
         form.clearErrors();
@@ -165,18 +179,14 @@ export default function ExpensesIndex({
             cell: (row) => row.spent_on,
         },
         {
+            key: 'title',
+            header: 'Title',
+            cell: (row) => <span className="font-medium">{row.title}</span>,
+        },
+        {
             key: 'category',
             header: 'Category',
             cell: (row) => <Badge variant="secondary">{row.category}</Badge>,
-        },
-        {
-            key: 'reference',
-            header: 'Reference',
-            hideOnMobile: true,
-            cell: (row) =>
-                row.reference ?? (
-                    <span className="text-muted-foreground">—</span>
-                ),
         },
         {
             key: 'payment_method_label',
@@ -204,7 +214,7 @@ export default function ExpensesIndex({
                     <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`Edit expense on ${row.spent_on}`}
+                        aria-label={`Edit ${row.title}`}
                         onClick={() => openEdit(row)}
                     >
                         <Pencil />
@@ -212,7 +222,7 @@ export default function ExpensesIndex({
                     <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`Delete expense on ${row.spent_on}`}
+                        aria-label={`Delete ${row.title}`}
                         onClick={() =>
                             router.delete(destroy(row.id).url, {
                                 preserveScroll: true,
@@ -264,7 +274,7 @@ export default function ExpensesIndex({
                 columns={columns}
                 state={table}
                 getRowKey={(row) => row.id}
-                searchPlaceholder="Search reference or notes"
+                searchPlaceholder="Search title or notes"
                 toolbar={
                     <>
                         <DateRangePicker
@@ -362,24 +372,48 @@ export default function ExpensesIndex({
                         </DialogHeader>
 
                         <FieldGroup className="py-4">
+                            <FormField
+                                label="Title"
+                                error={form.errors.title}
+                                description="What the money went on — “February rent”, “Van diesel”."
+                            >
+                                {(control) => (
+                                    <Input
+                                        {...control}
+                                        autoFocus
+                                        value={form.data.title}
+                                        onChange={(event) =>
+                                            form.setData(
+                                                'title',
+                                                event.target.value,
+                                            )
+                                        }
+                                    />
+                                )}
+                            </FormField>
+
                             <div className="grid gap-6 sm:grid-cols-2">
                                 <FormField
-                                    label={`Amount (${currency.code})`}
+                                    label="Amount"
                                     error={form.errors.amount}
                                 >
                                     {(control) => (
-                                        <Input
+                                        <MoneyInput
                                             {...control}
-                                            inputMode="decimal"
-                                            placeholder="0.00"
-                                            className="text-right tabular-nums"
-                                            autoFocus
                                             value={form.data.amount}
-                                            onChange={(event) =>
-                                                form.setData(
-                                                    'amount',
-                                                    event.target.value,
-                                                )
+                                            currency={form.data.amount_currency}
+                                            onChange={(value) =>
+                                                form.setData('amount', value)
+                                            }
+                                            onCurrencyChange={(next) =>
+                                                // The amount is the only figure
+                                                // here, so what it is typed in
+                                                // IS what was paid in.
+                                                form.setData((data) => ({
+                                                    ...data,
+                                                    amount_currency: next,
+                                                    currency: next,
+                                                }))
                                             }
                                         />
                                     )}
@@ -470,25 +504,6 @@ export default function ExpensesIndex({
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                )}
-                            </FormField>
-
-                            <FormField
-                                label="Reference"
-                                error={form.errors.reference}
-                                description="Receipt or invoice number."
-                            >
-                                {(control) => (
-                                    <Input
-                                        {...control}
-                                        value={form.data.reference}
-                                        onChange={(event) =>
-                                            form.setData(
-                                                'reference',
-                                                event.target.value,
-                                            )
-                                        }
-                                    />
                                 )}
                             </FormField>
 

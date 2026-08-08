@@ -4,133 +4,45 @@ namespace App\Http\Controllers\Reports;
 
 use App\Http\Concerns\InteractsWithReports;
 use App\Http\Controllers\Controller;
-use App\Queries\ExpenseReportQuery;
-use App\Queries\InventoryReportQuery;
-use App\Queries\ProductProfitabilityQuery;
-use App\Queries\ProfitReportQuery;
-use App\Queries\PurchaseReportQuery;
-use App\Queries\SalesReportQuery;
-use App\Queries\SupplierSummaryQuery;
-use App\Support\Money;
-use App\Support\ReportPeriod;
+use App\Queries\ActivityQuery;
+use App\Queries\CashFlowQuery;
 use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * Every figure on these screens is derived from transactions over the window
- * in the query string. Nothing is read from a stored summary, so a report can
- * never disagree with the documents behind it.
+ * The whole reporting section: money in, money out, what is left, and every
+ * document those three figures were added up from.
  *
- * `Money` serializes to minor units, so query results are handed to Inertia
- * as they come back — the frontend formats them.
+ * Every figure is derived from the transactions in the window, so a report can
+ * never disagree with the documents behind it. `Money` serializes to minor
+ * units, so the query result is handed to Inertia as it comes back and the
+ * frontend formats it.
+ *
+ * The activity lists are unlimited on purpose — the period is the bound, and a
+ * report that showed only the first few would not be a report. They are posted
+ * only, matching the totals, so every row on screen is behind the figures
+ * above it.
  */
 class ReportController extends Controller
 {
     use InteractsWithReports;
 
     public function __construct(
-        private readonly SalesReportQuery $sales,
-        private readonly PurchaseReportQuery $purchases,
-        private readonly ExpenseReportQuery $expenses,
-        private readonly ProfitReportQuery $profit,
-        private readonly ProductProfitabilityQuery $products,
-        private readonly SupplierSummaryQuery $suppliers,
-        private readonly InventoryReportQuery $inventory,
+        private readonly CashFlowQuery $cashFlow,
+        private readonly ActivityQuery $activity,
     ) {}
 
-    /**
-     * The headline: revenue, what it cost, what was left.
-     */
-    public function summary(): Response
+    public function __invoke(): Response
     {
         $period = $this->reportPeriod();
 
         return Inertia::render('reports/index', [
             ...$this->periodProps($period),
-            'profit' => $this->profit->get($period),
+            'cashFlow' => $this->cashFlow->get($period),
             // The same figures for the stretch immediately before, so each
             // tile can say whether it is up or down on a like-for-like window.
-            'previous' => $this->profit->get($period->previous()),
-            'series' => $this->profit->series($period),
-            'purchases' => $this->purchases->get($period),
-            'inventory' => $this->inventorySummary($period),
+            'previous' => $this->cashFlow->get($period->previous()),
+            'activity' => $this->activity->get($period),
         ]);
-    }
-
-    public function sales(): Response
-    {
-        $period = $this->reportPeriod();
-
-        return Inertia::render('reports/sales', [
-            ...$this->periodProps($period),
-            'sales' => $this->sales->get($period),
-            'previous' => $this->sales->get($period->previous()),
-            'series' => $this->sales->series($period),
-            'paymentMethods' => $this->sales->byPaymentMethod($period),
-        ]);
-    }
-
-    public function purchases(): Response
-    {
-        $period = $this->reportPeriod();
-
-        return Inertia::render('reports/purchases', [
-            ...$this->periodProps($period),
-            'purchases' => $this->purchases->get($period),
-            'previous' => $this->purchases->get($period->previous()),
-            'series' => $this->purchases->series($period),
-            'suppliers' => $this->suppliers->get($period),
-        ]);
-    }
-
-    public function expenses(): Response
-    {
-        $period = $this->reportPeriod();
-        $report = $this->expenses->get($period);
-
-        return Inertia::render('reports/expenses', [
-            ...$this->periodProps($period),
-            'expenses' => $report,
-            'previous' => $this->expenses->total($period->previous()),
-            'series' => $this->expenses->series($period),
-            'averages' => $period->averages($report['total']),
-        ]);
-    }
-
-    public function products(): Response
-    {
-        $period = $this->reportPeriod();
-
-        return Inertia::render('reports/products', [
-            ...$this->periodProps($period),
-            'products' => $this->products->get($period),
-        ]);
-    }
-
-    public function inventory(): Response
-    {
-        $period = $this->reportPeriod();
-
-        return Inertia::render('reports/inventory', [
-            ...$this->periodProps($period),
-            'inventory' => $this->inventory->get($period),
-        ]);
-    }
-
-    /**
-     * Valuation for the summary screen, without the per-product rows it does
-     * not show.
-     *
-     * @return array{total_value: Money, dead_value: Money, dead_count: int}
-     */
-    private function inventorySummary(ReportPeriod $period): array
-    {
-        $report = $this->inventory->get($period);
-
-        return [
-            'total_value' => $report['total_value'],
-            'dead_value' => $report['dead_value'],
-            'dead_count' => $report['dead_count'],
-        ];
     }
 }

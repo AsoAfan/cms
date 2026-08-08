@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\PaymentMethod;
+use App\Support\ExchangeRates;
 use App\Support\Money;
 use Database\Factories\ExpenseFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -19,10 +20,12 @@ use Illuminate\Support\Carbon;
  *
  * @property int $id
  * @property int $expense_category_id
+ * @property string $title
  * @property Money $amount
  * @property Carbon $spent_on
  * @property PaymentMethod $payment_method
- * @property string|null $reference
+ * @property string $currency
+ * @property int $exchange_rate
  * @property string|null $notes
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -30,10 +33,12 @@ use Illuminate\Support\Carbon;
  */
 #[Fillable([
     'expense_category_id',
+    'title',
     'amount',
     'spent_on',
     'payment_method',
-    'reference',
+    'currency',
+    'exchange_rate',
     'notes',
 ])]
 class Expense extends Model
@@ -50,7 +55,25 @@ class Expense extends Model
             'amount' => Money::class,
             'spent_on' => 'date',
             'payment_method' => PaymentMethod::class,
+            'exchange_rate' => 'integer',
         ];
+    }
+
+    /**
+     * Whether this was paid in something other than the currency it is stored
+     * in.
+     */
+    public function isForeignCurrency(): bool
+    {
+        return $this->currency !== config('money.currency');
+    }
+
+    /**
+     * The rate this expense was converted at, as it reads on screen.
+     */
+    public function exchangeRate(): string
+    {
+        return ExchangeRates::rateToDecimal($this->exchange_rate);
     }
 
     /**

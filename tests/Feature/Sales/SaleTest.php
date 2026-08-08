@@ -24,8 +24,7 @@ beforeEach(function () {
     $this->valuation = app(InventoryValuationQuery::class);
     $this->product = Product::factory()->create([
         'name' => 'Blackout 117x137',
-        'code' => 'BEC-117-137',
-        'default_selling_price' => '44.00',
+        'selling_price' => '44.00',
     ]);
 });
 
@@ -179,7 +178,7 @@ it('refuses to sell more than there is', function () {
 });
 
 it('posts nothing at all when one line of several is short', function () {
-    $other = Product::factory()->create(['code' => 'VOI-117']);
+    $other = Product::factory()->create(['name' => 'Voile Panel 117']);
 
     stockUp($this->product, 10, '18.00');
     stockUp($other, 1, '6.00');
@@ -201,7 +200,7 @@ it('posts nothing at all when one line of several is short', function () {
 });
 
 it('reports every short product at once, not just the first', function () {
-    $other = Product::factory()->create(['code' => 'VOI-117', 'name' => 'Voile Panel']);
+    $other = Product::factory()->create(['name' => 'Voile Panel']);
 
     stockUp($this->product, 1, '18.00');
     stockUp($other, 1, '6.00');
@@ -222,8 +221,8 @@ it('reports every short product at once, not just the first', function () {
         $this->fail('Expected the sale to be refused.');
     } catch (SaleNotPostableException $exception) {
         expect($exception->shortages)->toHaveCount(2)
-            ->and($exception->getMessage())->toContain('BEC-117-137')
-            ->and($exception->getMessage())->toContain('VOI-117');
+            ->and($exception->getMessage())->toContain('Blackout 117x137')
+            ->and($exception->getMessage())->toContain('Voile Panel');
     }
 });
 
@@ -339,7 +338,7 @@ it('offers products with what is on hand, so the till can warn', function () {
         ->assertInertia(fn ($page) => $page
             ->component('sales/create')
             ->where('products.0.on_hand', 7)
-            ->where('products.0.code', 'BEC-117-137')
+            ->where('products.0.name', 'Blackout 117x137')
             ->has('paymentMethods', 3)
         );
 });

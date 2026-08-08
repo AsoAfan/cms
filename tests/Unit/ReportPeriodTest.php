@@ -1,6 +1,5 @@
 <?php
 
-use App\Enums\ReportInterval;
 use App\Enums\ReportPreset;
 use App\Support\Money;
 use App\Support\ReportPeriod;
@@ -155,64 +154,6 @@ it('rounds an average to the cent rather than dropping the fraction', function (
 
 /*
 |--------------------------------------------------------------------------
-| Buckets
-|--------------------------------------------------------------------------
-*/
-
-it('picks a bucket size a chart can actually show', function (string $from, string $to, ReportInterval $interval) {
-    expect(ReportPeriod::between($from, $to)->interval())->toBe($interval);
-})->with([
-    'a fortnight' => ['2026-02-01', '2026-02-14', ReportInterval::Day],
-    'a quarter' => ['2026-01-01', '2026-03-31', ReportInterval::Day],
-    'half a year' => ['2026-01-01', '2026-06-30', ReportInterval::Week],
-    'two years' => ['2025-01-01', '2026-12-31', ReportInterval::Month],
-]);
-
-it('includes the quiet buckets so a chart has no holes in it', function () {
-    $period = ReportPeriod::between('2026-02-01', '2026-02-05');
-
-    expect($period->buckets())->toBe([
-        '2026-02-01', '2026-02-02', '2026-02-03', '2026-02-04', '2026-02-05',
-    ]);
-});
-
-it('folds dated totals into buckets, zeroing the days nothing happened', function () {
-    $period = ReportPeriod::between('2026-02-01', '2026-02-04');
-
-    expect($period->fold([
-        '2026-02-01 00:00:00' => 500,
-        '2026-02-03 00:00:00' => '250',
-    ]))->toBe([
-        '2026-02-01' => 500,
-        '2026-02-02' => 0,
-        '2026-02-03' => 250,
-        '2026-02-04' => 0,
-    ]);
-});
-
-it('adds several days into the month they fall in', function () {
-    $period = ReportPeriod::between('2025-01-01', '2026-12-31');
-
-    $folded = $period->fold([
-        '2025-01-05 00:00:00' => 100,
-        '2025-01-20 00:00:00' => 250,
-        '2025-02-14 00:00:00' => 400,
-    ]);
-
-    expect($folded['2025-01-01'])->toBe(350)
-        ->and($folded['2025-02-01'])->toBe(400)
-        ->and($folded)->toHaveCount(24);
-});
-
-it('drops totals that fall outside the period rather than misfiling them', function () {
-    $period = ReportPeriod::between('2026-02-01', '2026-02-03');
-
-    expect($period->fold(['2026-01-31 00:00:00' => 999]))
-        ->toBe(['2026-02-01' => 0, '2026-02-02' => 0, '2026-02-03' => 0]);
-});
-
-/*
-|--------------------------------------------------------------------------
 | Serialization
 |--------------------------------------------------------------------------
 */
@@ -224,7 +165,6 @@ it('serializes what a report screen needs to render its filter', function () {
         'preset' => 'last_month',
         'label' => 'Last month',
         'days' => 28,
-        'interval' => 'day',
     ]);
 });
 

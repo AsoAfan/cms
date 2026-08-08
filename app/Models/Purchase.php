@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\PurchaseStatus;
+use App\Support\ExchangeRates;
 use App\Support\Money;
 use Database\Factories\PurchaseFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -17,19 +18,30 @@ use Illuminate\Support\Carbon;
  * A supplier invoice.
  *
  * @property int $id
- * @property int $supplier_id
+ * @property int|null $supplier_id
  * @property string $number
  * @property Carbon $invoiced_on
  * @property PurchaseStatus $status
+ * @property string $currency
+ * @property int $exchange_rate
  * @property string|null $notes
  * @property Carbon|null $posted_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
- * @property-read Supplier $supplier
+ * @property-read Supplier|null $supplier
  * @property-read Collection<int, PurchaseLine> $lines
  * @property-read Collection<int, PurchaseAdditionalCost> $additionalCosts
  */
-#[Fillable(['supplier_id', 'number', 'invoiced_on', 'status', 'notes', 'posted_at'])]
+#[Fillable([
+    'supplier_id',
+    'number',
+    'invoiced_on',
+    'status',
+    'currency',
+    'exchange_rate',
+    'notes',
+    'posted_at',
+])]
 class Purchase extends Model
 {
     /** @use HasFactory<PurchaseFactory> */
@@ -43,11 +55,31 @@ class Purchase extends Model
         return [
             'invoiced_on' => 'date',
             'status' => PurchaseStatus::class,
+            'exchange_rate' => 'integer',
             'posted_at' => 'datetime',
         ];
     }
 
     /**
+     * Whether this invoice was written in something other than the currency its
+     * amounts are stored in.
+     */
+    public function isForeignCurrency(): bool
+    {
+        return $this->currency !== config('money.currency');
+    }
+
+    /**
+     * The rate this invoice was converted at, as it reads on screen.
+     */
+    public function exchangeRate(): string
+    {
+        return ExchangeRates::rateToDecimal($this->exchange_rate);
+    }
+
+    /**
+     * Who it was bought from, when that was worth recording.
+     *
      * @return BelongsTo<Supplier, $this>
      */
     public function supplier(): BelongsTo

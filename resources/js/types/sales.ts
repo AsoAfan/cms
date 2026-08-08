@@ -16,18 +16,23 @@ export type PaymentMethodOption = { value: string; label: string };
 export type SellableProduct = {
     id: number;
     name: string;
-    code: string;
-    default_selling_price: string | null;
+    /** A base-currency decimal string, prefilled onto a new line. */
+    selling_price: string;
     /** Derived from the ledger, so the till can warn before overselling. */
     on_hand: number;
 };
 
-/** Decimal strings so inputs round-trip exactly. */
+/**
+ * Decimal strings so inputs round-trip exactly, each amount paired with the
+ * currency it is being typed in. The server converts to the base currency.
+ */
 export type SaleLineForm = {
     product_id: number | null;
     quantity: string;
     unit_price: string;
+    unit_price_currency: string;
     discount: string;
+    discount_currency: string;
 };
 
 export type SaleFormData = {
@@ -35,6 +40,8 @@ export type SaleFormData = {
     number?: string;
     sold_on: string;
     payment_method: string;
+    /** What the customer handed over, and the default for every amount on it. */
+    currency: string;
     notes: string | null;
     lines: SaleLineForm[];
 };
@@ -42,7 +49,6 @@ export type SaleFormData = {
 export type SaleDetailLine = {
     id: number;
     product: string;
-    code: string;
     quantity: number;
     unit_price: number;
     discount: number;
@@ -57,6 +63,9 @@ export type SaleDetail = {
     sold_on: string;
     status: SaleStatus;
     payment_method: string;
+    /** What it was paid in, and the rate it was converted at. */
+    currency: string;
+    exchange_rate: string;
     notes: string | null;
     posted_at: string | null;
     total: number;

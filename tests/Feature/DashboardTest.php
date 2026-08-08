@@ -27,8 +27,12 @@ it('shares the currency and the signed-in user with every page', function () {
         ->assertInertia(fn ($page) => $page
             ->where('auth.user.id', $user->id)
             ->where('auth.user.email', $user->email)
-            ->where('currency.code', config('money.currency'))
+            ->where('currency.base', config('money.currency'))
+            // Figures are read in the base currency until someone says
+            // otherwise, which is the whole point of a base currency.
+            ->where('currency.display', config('money.currency'))
             ->where('currency.locale', config('money.locale'))
+            ->has('currency.currencies')
             ->has('sidebarOpen')
         );
 });

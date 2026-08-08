@@ -20,7 +20,13 @@ return new class extends Migration
     {
         Schema::create('purchases', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('supplier_id')->constrained()->restrictOnDelete();
+
+            // Optional: what was bought, for how much and when is the invoice.
+            // Who it came from is filing, and stock that arrives from a cash
+            // purchase down the market must not wait on a supplier record
+            // being created first. Still restricted on delete — a supplier
+            // with history behind them is not quietly detached from it.
+            $table->foreignId('supplier_id')->nullable()->constrained()->restrictOnDelete();
 
             // Our own filing reference, assigned on creation.
             $table->string('number')->unique();

@@ -231,21 +231,66 @@ Small and fully independent — good parallel work alongside Phase 4/5.
 
 **Goal:** every figure derived from transactions, over any date range.
 
-- [ ] **P7.T1** — `ReportPeriod` value object (range, presets, comparison period).
-- [ ] **P7.T2** — Shared date-range filter component + persisted URL state.
-- [ ] **P7.T3** — `SalesReportQuery` — revenue, invoice count, average selling price.
-- [ ] **P7.T4** — `PurchaseReportQuery` — total purchases, average buying cost.
-- [ ] **P7.T5** — `ExpenseReportQuery` — totals by category.
-- [ ] **P7.T6** — `ProfitReportQuery` — gross profit (revenue − COGS), net profit (− expenses).
-- [ ] **P7.T7** — `ProductProfitabilityQuery` — profit per product.
-- [ ] **P7.T8** — `SupplierSummaryQuery`. (No customer summary — see Phase 2.)
-- [ ] **P7.T9** — `InventoryValuationReport` — on-hand value, dead stock.
-- [ ] **P7.T10** — Averages: average income/outcome per day, week, and month over the selected period.
-- [ ] **P7.T11** — Dashboard: KPI tiles, trend chart, recent activity.
-- [ ] **P7.T12** — CSV export for each report.
-- [ ] **P7.T13** — Accuracy tests: seeded fixture with hand-calculated expected figures.
+- [x] **P7.T1** — `ReportPeriod` value object: inclusive range, presets, comparison period, averages, and the bucketing a trend chart needs. Immutable and facade-free, so all of it is unit-testable without a database.
+- [x] **P7.T2** — `ReportPeriodFilter` — preset select + date-range picker, with the window held in the query string and nowhere else. `ReportNav` carries it between screens.
+- [x] **P7.T3** — `SalesReportQuery` — revenue, COGS, gross profit, invoice count, average selling price, plus a split by payment method and a daily series.
+- [x] **P7.T4** — `PurchaseReportQuery` — goods, freight and duty, total, average landed buying cost.
+- [x] **P7.T5** — `ExpenseReportQuery` — totals by category, including the categories nothing was spent on.
+- [x] **P7.T6** — `ProfitReportQuery` — gross profit (revenue − COGS), net profit (− expenses). Composes the sales and expense reports rather than merging their SQL.
+- [x] **P7.T7** — `ProductProfitabilityQuery` — units, revenue, cost and profit per product, costed from the batches each sale actually consumed.
+- [x] **P7.T8** — `SupplierSummaryQuery`. (No customer summary — see Phase 2.)
+- [x] **P7.T9** — `InventoryReportQuery` — on-hand value as at the period end, plus dead stock.
+- [x] **P7.T10** — Averages per day, week and month, on `ReportPeriod` and surfaced through `ProfitReportQuery`.
+- [x] **P7.T11** — Dashboard: KPI tiles with period-on-period change, trend chart, best sellers, recent activity.
+- [x] **P7.T12** — CSV export for all six reports, through `App\Support\Csv`.
+- [x] **P7.T13** — 19 accuracy tests against a hand-calculated fixture, 33 `ReportPeriod` unit tests, 16 CSV tests, 32 screen and export tests.
 
-**Done when:** gross profit from the report equals the sum of per-line profits computed independently.
+**Done when:** gross profit from the report equals the sum of per-line profits computed
+independently. ✅ — pinned by *"it agrees with the profit worked out line by line"* in
+`ReportAccuracyTest`, which sums `SaleLine::grossProfit()` off the models and compares.
+
+> **What makes the acceptance case hold.** Revenue and cost of goods sold are both scoped
+> by the **sale's own date**, not by when the ledger happened to move. Filtering COGS on
+> `stock_movements.occurred_at` would have been the obvious route and would have drifted
+> apart from revenue at every period boundary. Anchoring both at the document means the
+> report always describes exactly one set of invoices.
+>
+> **Deviations, all deliberate:**
+>
+> - **`InventoryValuationReport` → `InventoryReportQuery`.** `InventoryValuationQuery`
+>   from P3.T6 already owns raw valuation; this adds a period, the sales inside it and
+>   the dead-stock question on top. Every read model is now `*Query` in `App\Queries`.
+> - **Averages are not their own query.** They are arithmetic on a period and a total,
+>   so they live on `ReportPeriod` where they can be unit-tested without a database.
+>   A month is the mean **30.4375** days, held as an exact fraction, so a rate measured
+>   over a week and one measured over a year are directly comparable.
+> - **No charting library.** The trend chart is inline SVG — two series over a date axis
+>   is a few dozen lines of geometry, and any dependency for it would outweigh the file.
+>   The two series are told apart by **form** (area wash vs. 2px line) as well as tone,
+>   because this application's palette is achromatic; that separation survives any colour
+>   vision, a monochrome print and forced-colours mode.
+> - **Bucketing happens in PHP, not SQL.** Date functions differ by driver, and the
+>   alternative is one query shape per database. Grouping is by the plain date column,
+>   which is portable, and `ReportPeriod::fold()` folds days into weeks or months.
+> - **Only posted documents count.** A draft has taken nothing off the shelf and nobody
+>   has paid, so counting one would report takings that do not exist.
+>
+> **Three arch tests now guard the accounting**, on top of the two from P6: expenses stay
+> out of every query that derives COGS or a per-product margin; `ProfitReportQuery` may
+> not reach for purchases at all; and the inventory queries stay blind to expenses. Only
+> `ProfitReportQuery` is allowed to know about both sides.
+>
+> `Csv` escapes leading `=`, `+`, `@` in text fields — a supplier named after a formula
+> is a real attack, not a hypothetical — while leaving negative numbers alone.
+>
+> **Verified end to end in the running app** against twelve weeks of seeded trading: the
+> product report's per-product profits sum to the summary's gross profit exactly, the
+> supplier summary sums to the purchase total, and the payment-method split sums to
+> revenue. Every report screen server-renders (`data-server-rendered="true"`).
+>
+> **Deferred to P8:** the inventory report loads every product and batch to value the
+> shelf, and report queries run unindexed date scans. That is P8.T4's index audit, not
+> a correctness problem.
 
 ---
 
@@ -279,7 +324,7 @@ P0 ─┬─> P1 ─┬─> P3 ──> P4 ──> P5 ──┬──> P7 ──>
     └─> P6 ────────────────────────┘
 ```
 
-Phases 0–2 are done.
+Phases 0–7 are done.
 
 - Phases 2 and 6 can run alongside 1, 3, and 4.
 - Phase 3 gates all financial correctness — treat its test suite as non-negotiable.

@@ -54,6 +54,24 @@ export function toMajorUnits(minorUnits: MinorUnits): number {
 }
 
 /**
+ * One amount as a percentage of another, e.g. a margin or a category's share.
+ *
+ * Returns null when the base is zero: a margin on no revenue is not 0%, it is
+ * no answer at all, and a screen should print "—" rather than imply a figure.
+ */
+export function formatPercent(
+    part: MinorUnits,
+    whole: MinorUnits,
+    fractionDigits = 1,
+): string | null {
+    if (whole === 0) {
+        return null;
+    }
+
+    return `${((part / whole) * 100).toFixed(fractionDigits)}%`;
+}
+
+/**
  * Turn typed input such as `"1,234.56"` into minor units, for live totals while
  * a user is still typing. Returns `null` when the text is not a usable amount.
  *

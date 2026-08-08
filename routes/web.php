@@ -6,6 +6,8 @@ use App\Http\Controllers\Expenses\ExpenseCategoryController;
 use App\Http\Controllers\Expenses\ExpenseController;
 use App\Http\Controllers\Inventory\StockController;
 use App\Http\Controllers\Purchasing\PurchaseController;
+use App\Http\Controllers\Reports\ReportController;
+use App\Http\Controllers\Reports\ReportExportController;
 use App\Http\Controllers\Sales\SaleController;
 use App\Http\Controllers\Suppliers\SupplierController;
 use Illuminate\Support\Facades\Route;
@@ -31,6 +33,21 @@ Route::middleware('auth')->group(function (): void {
 
     Route::get('stock', [StockController::class, 'index'])->name('stock.index');
     Route::post('stock', [StockController::class, 'store'])->name('stock.store');
+
+    // Every report reads its window from `?from=&to=` or `?preset=`, so a URL
+    // is the whole of the state and can be bookmarked or sent to someone.
+    Route::prefix('reports')->name('reports.')->group(function (): void {
+        Route::get('/', [ReportController::class, 'summary'])->name('summary');
+        Route::get('sales', [ReportController::class, 'sales'])->name('sales');
+        Route::get('purchases', [ReportController::class, 'purchases'])->name('purchases');
+        Route::get('expenses', [ReportController::class, 'expenses'])->name('expenses');
+        Route::get('products', [ReportController::class, 'products'])->name('products');
+        Route::get('inventory', [ReportController::class, 'inventory'])->name('inventory');
+
+        Route::get('{report}/export', ReportExportController::class)
+            ->whereIn('report', ['summary', 'sales', 'purchases', 'expenses', 'products', 'inventory'])
+            ->name('export');
+    });
 });
 
 require __DIR__.'/auth.php';

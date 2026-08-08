@@ -2,6 +2,7 @@ import { Link, usePage } from '@inertiajs/react';
 import {
     BadgeDollarSign,
     Boxes,
+    ChartLine,
     LayoutDashboard,
     Package,
     Receipt,
@@ -26,6 +27,7 @@ import { dashboard } from '@/routes';
 import expenses from '@/routes/expenses';
 import products from '@/routes/products';
 import purchases from '@/routes/purchases';
+import reports from '@/routes/reports';
 import sales from '@/routes/sales';
 import stock from '@/routes/stock';
 import suppliers from '@/routes/suppliers';
@@ -69,6 +71,12 @@ const navigation: NavGroup[] = [
         label: 'Contacts',
         items: [
             { title: 'Suppliers', href: suppliers.index.url(), icon: Truck },
+        ],
+    },
+    {
+        label: 'Analysis',
+        items: [
+            { title: 'Reports', href: reports.summary.url(), icon: ChartLine },
         ],
     },
 ];

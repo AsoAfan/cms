@@ -91,5 +91,42 @@ arch('expenses never touch inventory')
     ]);
 
 arch('inventory never reaches for expenses')
-    ->expect(['App\Services\InventoryService', 'App\Queries'])
+    ->expect([
+        'App\Services\InventoryService',
+        'App\Queries\StockOnHandQuery',
+        'App\Queries\InventoryValuationQuery',
+        'App\Queries\InventoryReportQuery',
+    ])
     ->not->toUse(['App\Models\Expense', 'App\Models\ExpenseCategory']);
+
+/*
+ * The same rule, one layer up: net profit = gross profit − expenses, so an
+ * expense may only ever reach the accounts at that final subtraction. Every
+ * query that derives cost of goods sold or a per-product margin has to be
+ * blind to expenses, or rent starts being charged against the price of a
+ * curtain. Only `ProfitReportQuery` is allowed to know about both.
+ */
+arch('expenses stay out of cost of goods sold')
+    ->expect([
+        'App\Queries\SalesReportQuery',
+        'App\Queries\PurchaseReportQuery',
+        'App\Queries\ProductProfitabilityQuery',
+        'App\Queries\SupplierSummaryQuery',
+    ])
+    ->not->toUse([
+        'App\Models\Expense',
+        'App\Models\ExpenseCategory',
+        'App\Queries\ExpenseReportQuery',
+    ]);
+
+/*
+ * Buying stock is not a cost until the stock sells. Profit must never be
+ * computed from what was spent on inventory, only from what left the shelf.
+ */
+arch('profit is never derived from purchases')
+    ->expect('App\Queries\ProfitReportQuery')
+    ->not->toUse([
+        'App\Queries\PurchaseReportQuery',
+        'App\Models\Purchase',
+        'App\Models\PurchaseLine',
+    ]);

@@ -1,6 +1,7 @@
 import { Link, usePage } from '@inertiajs/react';
 import {
     BadgeDollarSign,
+    Boxes,
     LayoutDashboard,
     Package,
     Receipt,
@@ -23,6 +24,7 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import products from '@/routes/products';
+import stock from '@/routes/stock';
 import suppliers from '@/routes/suppliers';
 import type { NavGroup } from '@/types';
 
@@ -45,6 +47,7 @@ const navigation: NavGroup[] = [
         label: 'Catalogue',
         items: [
             { title: 'Products', href: products.index.url(), icon: Package },
+            { title: 'Stock', href: stock.index.url(), icon: Boxes },
         ],
     },
     {

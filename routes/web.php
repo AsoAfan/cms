@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Catalog\ProductController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Inventory\StockController;
 use App\Http\Controllers\Suppliers\SupplierController;
 use Illuminate\Support\Facades\Route;
 
@@ -12,6 +13,9 @@ Route::middleware('auth')->group(function (): void {
 
     Route::resource('products', ProductController::class)->except('show');
     Route::resource('suppliers', SupplierController::class)->except('show');
+
+    Route::get('stock', [StockController::class, 'index'])->name('stock.index');
+    Route::post('stock', [StockController::class, 'store'])->name('stock.store');
 });
 
 require __DIR__.'/auth.php';

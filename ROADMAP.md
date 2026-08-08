@@ -25,7 +25,7 @@ against one.
 | "Never store calculated values" | Exception for **recorded historical facts** | A sale line's unit price and a batch's landed unit cost are *facts at transaction time*, not caches. Totals, profit, and stock levels stay derived. |
 | Counterparties | **Suppliers only** | Sales are over the counter, so there is no customer to name. Customers would arrive as their own table plus a nullable `customer_id` on sales — additive. |
 | Catalogue depth | **Flat: a product is the stock-keeping entity.** No variants, options, categories, brands or units | Each was built and then removed as a layer to maintain without a matching gain. Goods that differ are separate products with separate codes. All are additive to bring back. |
-| Multi-warehouse / multi-currency | Schema-ready, not built | Ledger carries a nullable `location_id`; no currency column until needed |
+| Multi-warehouse / multi-currency | **Not built, and no placeholder columns** | The ledger was to carry a nullable `location_id` against a `locations` table that does not exist. An unused column is the same speculative layer units and variants turned out to be; adding one later is a single additive migration where NULL means "the one location". |
 | Returns | Scaffolding only in this scope | The requirements list returns as "future-ready", not required. P5.T8 lands the schema hooks so adding them later is additive, never a migration of posted data. |
 | Rounding remainders | Largest-remainder allocation, residual to the last line by `id` | Splitting $100 across 3 units gives 3333/3333/3334. A fixed, deterministic rule guarantees allocated costs sum **exactly** to the invoice total, so reconciliation never drifts by a cent. Applies to landed costs and invoice-level discounts alike. |
 
@@ -119,18 +119,34 @@ against one.
 
 **Goal:** one append-only source of truth for stock and cost. Build before anything writes stock.
 
-- [ ] **P3.T1** — `stock_movements`: product, signed qty, type enum, polymorphic `source` (purchase line / sale line / adjustment), `occurred_at`, nullable `location_id`.
-- [ ] **P3.T2** — `stock_batches`: product, source purchase line, `quantity_received`, `unit_cost` (landed), `received_at`.
-- [ ] **P3.T3** — `stock_batch_consumptions`: batch, consuming movement, qty, cost — the FIFO allocation record that produces exact COGS.
-- [ ] **P3.T4** — `InventoryService`: `receive()`, `issue()` (FIFO consumption), `adjust()`.
-- [ ] **P3.T5** — `StockOnHandQuery` — derives quantity per product at any date from the ledger.
-- [ ] **P3.T6** — `InventoryValuationQuery` — value on hand at any date.
-- [ ] **P3.T7** — Insufficient-stock guard + domain exception.
-- [ ] **P3.T8** — Manual stock adjustment screen (damage, count correction) with reason.
-- [ ] **P3.T9** — Heavy unit tests: FIFO across multiple batches, partial consumption, out-of-order dates, negative-stock rejection.
+- [x] **P3.T1** — `stock_movements`: product, signed qty, type enum, polymorphic `source`, `occurred_at`, `reason`. **No `location_id`** — see below.
+- [x] **P3.T2** — `stock_batches`: product, `received_movement_id`, `quantity_received`, `unit_cost` (landed), `received_at`. Points at the creating *movement* rather than a purchase line, so receipts from adjustments and (from P4) purchases both work with no special case.
+- [x] **P3.T3** — `stock_batch_consumptions`: batch, consuming movement, qty — the FIFO allocation record that produces exact COGS. The cost is **not** copied onto the row; the batch's `unit_cost` is immutable, so a second copy could only ever drift.
+- [x] **P3.T4** — `InventoryService`: `receive()`, `issue()` (FIFO consumption), `adjust()`.
+- [x] **P3.T5** — `StockOnHandQuery` — quantity per product at any date, per product or across the catalogue.
+- [x] **P3.T6** — `InventoryValuationQuery` — value on hand at any date, rewinding both receipts and consumptions.
+- [x] **P3.T7** — Insufficient-stock guard + `InsufficientStockException` carrying what was asked for and what was there.
+- [x] **P3.T8** — Stock screen: on-hand and value per product, total valuation, and a count dialog that records the difference with a reason.
+- [x] **P3.T9** — 34 ledger tests: FIFO across multiple batches, partial consumption, exact-boundary consumption, same-day tie-breaking, ten-batch runs, out-of-order dates, back-dated receipts, negative-stock rejection, and as-at queries.
 
 **Done when:** buying 10 @ $5 then 10 @ $7 and issuing 15 yields COGS of exactly $85 and
-on-hand of 5 @ $7.
+on-hand of 5 @ $7. ✅ — pinned by the first test in `InventoryServiceTest`.
+
+> **Deviations, both deliberate:**
+>
+> - **No `location_id`.** The Guiding Decision called for a nullable column against a
+>   `locations` table that does not exist. An unused column is the same speculative
+>   layer that units, categories, brands and variants each turned out to be. Adding a
+>   nullable column later is one additive migration, and every existing row reading
+>   NULL means "the one location" — no backfill.
+> - **Batches point at the creating movement, not a purchase line.** Purchases do not
+>   exist until P4, and adjustments create stock too. The movement already carries the
+>   polymorphic `source`, so nothing is lost.
+>
+> **Costing behaviour worth knowing before P4/P5:** an issue draws only on batches
+> received on or before its own date, and a receipt back-dated after the fact does not
+> retroactively rewrite allocations already settled. That is perpetual FIFO, and it is
+> what keeps the ledger append-only.
 
 > This phase is the risk concentration. If FIFO/COGS is wrong, every figure in Phase 7 is
 > wrong. Over-test it.

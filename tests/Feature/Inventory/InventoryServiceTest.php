@@ -70,8 +70,9 @@ it('records a receipt as a movement and a batch', function () {
     expect($movement->quantity)->toBe(10)
         ->and($movement->type)->toBe(StockMovementType::Purchase)
         ->and($movement->isReceipt())->toBeTrue()
-        ->and($movement->batch->quantity_received)->toBe(10)
-        ->and($movement->batch->unit_cost->toDecimal())->toBe('5.00');
+        ->and($movement->batches)->toHaveCount(1)
+        ->and($movement->batches->first()->quantity_received)->toBe(10)
+        ->and($movement->batches->first()->unit_cost->toDecimal())->toBe('5.00');
 });
 
 it('refuses a receipt of nothing or less', function (int $quantity) {
@@ -107,7 +108,7 @@ it('takes from the oldest batch first', function () {
 
     expect($sale->costOfGoodsSold()->toDecimal())->toBe('20.00')
         ->and($sale->consumptions)->toHaveCount(1)
-        ->and($sale->consumptions->first()->stock_batch_id)->toBe($old->batch->id);
+        ->and($sale->consumptions->first()->stock_batch_id)->toBe($old->batches->first()->id);
 });
 
 it('leaves the rest of a partly consumed batch available', function () {
@@ -150,7 +151,7 @@ it('breaks ties between same-day batches by insertion order', function () {
 
     $sale = issue(5, '2026-01-01 17:00');
 
-    expect($sale->consumptions->first()->stock_batch_id)->toBe($first->batch->id)
+    expect($sale->consumptions->first()->stock_batch_id)->toBe($first->batches->first()->id)
         ->and($sale->costOfGoodsSold()->toDecimal())->toBe('20.00');
 });
 
@@ -420,4 +421,71 @@ it('does not fall back to an unfiltered sum when a constrained aggregate is empt
     expect($this->valuation->forProduct($this->product, Carbon::parse('2026-01-01'))->toDecimal())->toBe('50.00')
         ->and($this->valuation->forProduct($this->product, Carbon::parse('2026-06-01'))->toDecimal())->toBe('0.00')
         ->and($this->valuation->forProduct($this->product)->toDecimal())->toBe('0.00');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Landed cost that will not divide evenly
+|--------------------------------------------------------------------------
+*/
+
+it('splits a receipt into batches when the cost will not divide evenly', function () {
+    $movement = $this->service->receiveAtTotalCost(
+        product: $this->product,
+        quantity: 3,
+        totalCost: Money::fromDecimal('10.00'),
+        occurredAt: Carbon::parse('2026-01-01'),
+    );
+
+    // 1000 across 3 is 333 / 333 / 334 — grouped into two batches so the
+    // books still add back to exactly $10.00.
+    expect($movement->batches)->toHaveCount(2)
+        ->and($movement->receiptCost()->toDecimal())->toBe('10.00')
+        ->and($this->valuation->forProduct($this->product)->toDecimal())->toBe('10.00')
+        ->and($this->onHand->forProduct($this->product))->toBe(3);
+});
+
+it('keeps a single batch when the cost divides cleanly', function () {
+    $movement = $this->service->receiveAtTotalCost(
+        product: $this->product,
+        quantity: 4,
+        totalCost: Money::fromDecimal('10.00'),
+        occurredAt: Carbon::parse('2026-01-01'),
+    );
+
+    expect($movement->batches)->toHaveCount(1)
+        ->and($movement->batches->first()->unit_cost->toDecimal())->toBe('2.50');
+});
+
+it('never loses or invents a penny, whatever the quantity', function (int $quantity) {
+    $this->service->receiveAtTotalCost(
+        product: $this->product,
+        quantity: $quantity,
+        totalCost: Money::fromDecimal('100.00'),
+        occurredAt: Carbon::parse('2026-01-01'),
+    );
+
+    expect($this->valuation->forProduct($this->product)->toDecimal())->toBe('100.00');
+})->with([1, 2, 3, 6, 7, 9, 11, 13, 97, 101]);
+
+it('consumes a split receipt cheapest-first and still totals exactly', function () {
+    $this->service->receiveAtTotalCost(
+        product: $this->product,
+        quantity: 3,
+        totalCost: Money::fromDecimal('10.00'),
+        occurredAt: Carbon::parse('2026-01-01'),
+    );
+
+    $sale = issue(3, '2026-01-02');
+
+    expect($sale->costOfGoodsSold()->toDecimal())->toBe('10.00')
+        ->and($this->valuation->forProduct($this->product)->isZero())->toBeTrue();
+});
+
+it('refuses a receipt that costs a negative amount', function () {
+    expect(fn () => $this->service->receiveAtTotalCost(
+        product: $this->product,
+        quantity: 3,
+        totalCost: Money::fromMinorUnits(-1),
+    ))->toThrow(InvalidArgumentException::class);
 });

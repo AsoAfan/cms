@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Carbon;
 
@@ -30,7 +29,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Product $product
- * @property-read StockBatch|null $batch
+ * @property-read Collection<int, StockBatch> $batches
  * @property-read Collection<int, StockBatchConsumption> $consumptions
  */
 #[Fillable(['product_id', 'quantity', 'type', 'occurred_at', 'reason'])]
@@ -67,13 +66,35 @@ class StockMovement extends Model
     }
 
     /**
-     * The batch this movement created, if it was a receipt.
+     * The batches this movement created, if it was a receipt.
      *
-     * @return HasOne<StockBatch, $this>
+     * Usually one. A receipt splits into several when its landed cost does not
+     * divide evenly across the units — two at $3.33 and one at $3.34 rather
+     * than three at $3.33 and a lost penny.
+     *
+     * @return HasMany<StockBatch, $this>
      */
-    public function batch(): HasOne
+    public function batches(): HasMany
     {
-        return $this->hasOne(StockBatch::class, 'received_movement_id');
+        return $this->hasMany(StockBatch::class, 'received_movement_id');
+    }
+
+    /**
+     * What this receipt cost in total, across whatever batches it produced.
+     */
+    public function receiptCost(): Money
+    {
+        if (! $this->isReceipt()) {
+            return Money::zero();
+        }
+
+        $this->loadMissing('batches');
+
+        return Money::sum(
+            ...$this->batches->map(
+                fn (StockBatch $batch): Money => $batch->unit_cost->multipliedBy($batch->quantity_received)
+            )
+        );
     }
 
     /**

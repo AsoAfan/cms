@@ -32,7 +32,7 @@ final class InventoryService
     public function __construct(private readonly StockOnHandQuery $onHand) {}
 
     /**
-     * Take stock in, creating the FIFO batch it will later be consumed from.
+     * Take stock in at a known cost per unit.
      *
      * @param  Money  $unitCost  landed cost per unit, fixed from here on
      *
@@ -47,29 +47,90 @@ final class InventoryService
         ?Model $source = null,
         ?string $reason = null,
     ): StockMovement {
-        if ($quantity < 1) {
-            throw new InvalidArgumentException('A receipt needs a quantity of at least one.');
-        }
-
         if ($unitCost->isNegative()) {
             throw new InvalidArgumentException('A unit cost cannot be negative.');
         }
 
+        return $this->receiveAtTotalCost(
+            product: $product,
+            quantity: $quantity,
+            totalCost: $unitCost->multipliedBy(max($quantity, 0)),
+            type: $type,
+            occurredAt: $occurredAt,
+            source: $source,
+            reason: $reason,
+        );
+    }
+
+    /**
+     * Take stock in for a known total outlay, letting the per-unit cost fall
+     * out of it.
+     *
+     * This is the shape a purchase actually arrives in: you know what the line
+     * cost once freight and duty were spread over it, not what one unit cost.
+     * The total is allocated across the units with largest-remainder rounding
+     * and equal costs are grouped, so three units costing $10.00 all in become
+     * two batches — two at $3.33 and one at $3.34 — and the batches add back
+     * to exactly what was paid. Rounding to $3.33 each would quietly lose a
+     * penny out of inventory on every such line.
+     *
+     * @throws InvalidArgumentException
+     */
+    public function receiveAtTotalCost(
+        Product $product,
+        int $quantity,
+        Money $totalCost,
+        StockMovementType $type = StockMovementType::Adjustment,
+        ?DateTimeInterface $occurredAt = null,
+        ?Model $source = null,
+        ?string $reason = null,
+    ): StockMovement {
+        if ($quantity < 1) {
+            throw new InvalidArgumentException('A receipt needs a quantity of at least one.');
+        }
+
+        if ($totalCost->isNegative()) {
+            throw new InvalidArgumentException('A receipt cannot cost a negative amount.');
+        }
+
         $occurredAt = Carbon::instance($occurredAt ?? Carbon::now());
 
-        return DB::transaction(function () use ($product, $quantity, $unitCost, $type, $occurredAt, $source, $reason): StockMovement {
+        return DB::transaction(function () use ($product, $quantity, $totalCost, $type, $occurredAt, $source, $reason): StockMovement {
             $movement = $this->writeMovement($product, $quantity, $type, $occurredAt, $source, $reason);
 
-            StockBatch::query()->create([
-                'product_id' => $product->id,
-                'received_movement_id' => $movement->id,
-                'quantity_received' => $quantity,
-                'unit_cost' => $unitCost,
-                'received_at' => $occurredAt,
-            ]);
+            foreach ($this->batchCosts($totalCost, $quantity) as $unitCost => $units) {
+                StockBatch::query()->create([
+                    'product_id' => $product->id,
+                    'received_movement_id' => $movement->id,
+                    'quantity_received' => $units,
+                    'unit_cost' => Money::fromMinorUnits($unitCost),
+                    'received_at' => $occurredAt,
+                ]);
+            }
 
             return $movement;
         });
+    }
+
+    /**
+     * Spread a total across units, then group units that cost the same.
+     *
+     * Returns unit cost in minor units => how many units carry it, cheapest
+     * first, which is also the order FIFO will consume them in.
+     *
+     * @return array<int, int>
+     */
+    private function batchCosts(Money $totalCost, int $quantity): array
+    {
+        $grouped = [];
+
+        foreach ($totalCost->split($quantity) as $unitCost) {
+            $grouped[$unitCost->minorUnits] = ($grouped[$unitCost->minorUnits] ?? 0) + 1;
+        }
+
+        ksort($grouped);
+
+        return $grouped;
     }
 
     /**

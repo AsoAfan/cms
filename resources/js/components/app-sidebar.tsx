@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import products from '@/routes/products';
+import purchases from '@/routes/purchases';
 import stock from '@/routes/stock';
 import suppliers from '@/routes/suppliers';
 import type { NavGroup } from '@/types';
@@ -51,6 +52,16 @@ const navigation: NavGroup[] = [
         ],
     },
     {
+        label: 'Trade',
+        items: [
+            {
+                title: 'Purchases',
+                href: purchases.index.url(),
+                icon: ShoppingCart,
+            },
+        ],
+    },
+    {
         label: 'Contacts',
         items: [
             { title: 'Suppliers', href: suppliers.index.url(), icon: Truck },
@@ -66,7 +77,6 @@ const upcoming: NavGroup[] = [
     {
         label: 'Trade',
         items: [
-            { title: 'Purchases', href: '/purchases', icon: ShoppingCart },
             { title: 'Sales', href: '/sales', icon: Receipt },
             { title: 'Expenses', href: '/expenses', icon: Wallet },
         ],

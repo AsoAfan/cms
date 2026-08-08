@@ -155,16 +155,27 @@ on-hand of 5 @ $7. ✅ — pinned by the first test in `InventoryServiceTest`.
 
 ## Phase 4 — Purchasing
 
-- [ ] **P4.T1** — `purchases` (invoice header: supplier, number, date, status, notes).
-- [ ] **P4.T2** — `purchase_lines` (product, qty, unit cost, discount).
-- [ ] **P4.T3** — `purchase_additional_costs` (freight, customs) + allocation strategy enum (by value / by qty).
-- [ ] **P4.T4** — `PostPurchaseAction`: allocate landed cost → create batches → write stock movements, inside a transaction. Use largest-remainder allocation with the residual on the last line by `id`; assert allocated costs sum exactly to the invoice total.
-- [ ] **P4.T5** — Draft → Posted status machine; posted purchases are immutable (reversal, not edit).
-- [ ] **P4.T6** — Purchase entry form: fast line entry, product combobox, keyboard-driven, live totals.
-- [ ] **P4.T7** — Purchase list + detail view with movement trace.
-- [ ] **P4.T8** — Feature tests including landed-cost allocation math.
+- [x] **P4.T1** — `purchases` (supplier, number, invoice date, status, notes). No stored total — it is the sum of its parts.
+- [x] **P4.T2** — `purchase_lines` (product, qty, unit cost, discount). The discount is an absolute amount, not a percentage: a percentage needs rounding to become money, and the amount is what the invoice actually says.
+- [x] **P4.T3** — `purchase_additional_costs` (freight, duty) + `CostAllocationMethod` (by value / by quantity).
+- [x] **P4.T4** — `PostPurchaseAction`: spread the invoice-wide costs, receive each line at its landed total, all inside one transaction. `assertReconciles()` throws if the allocation ever fails to equal the invoice to the penny.
+- [x] **P4.T5** — Draft → Posted, one-way. Posted purchases refuse edit and delete at both the action and the controller.
+- [x] **P4.T6** — Purchase entry form: line table, product select, Enter on the last line adds another, live goods/freight/total.
+- [x] **P4.T7** — Purchase list + posted detail showing each line's landed total and the batches it put on the shelf.
+- [x] **P4.T8** — 19 allocation tests plus 18 screen tests, including a table of awkward invoices asserting inventory rises by exactly the invoice total.
 
-**Done when:** posting a purchase raises stock and sets the correct landed unit cost per batch.
+**Done when:** posting a purchase raises stock and sets the correct landed unit cost per batch. ✅
+
+> **The ledger changed to make this exact.** Landed cost rarely divides evenly: $40.00 over
+> 3 units is $13.33 each with a penny left over. A receipt now allocates its total across
+> the individual units and groups equal costs, so that line becomes two batches — 2 at
+> $13.33 and 1 at $13.34 — and inventory rises by exactly $40.00. `stock_batches` lost its
+> unique index on `received_movement_id` to allow it, and `InventoryService` gained
+> `receiveAtTotalCost()`.
+>
+> **Not built:** reversal of a posted purchase. Posting is one-way and posted invoices are
+> immutable, but there is no document yet to undo one. Worth adding before this handles
+> real money in anger.
 
 ---
 

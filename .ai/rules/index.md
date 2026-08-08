@@ -10,4 +10,5 @@ Before planning or editing, find the row whose globs match the file's path and r
 | resources/js/** | .ai/rules/js.md |
 | resources/js/pages/** | .ai/rules/pages.md |
 | app/Actions/Purchasing/** | .ai/rules/purchasing.md |
+| app/Actions/Sales/** | .ai/rules/sales.md |
 | app/Services/** | .ai/rules/services.md |

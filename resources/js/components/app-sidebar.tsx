@@ -25,6 +25,7 @@ import {
 import { dashboard } from '@/routes';
 import products from '@/routes/products';
 import purchases from '@/routes/purchases';
+import sales from '@/routes/sales';
 import stock from '@/routes/stock';
 import suppliers from '@/routes/suppliers';
 import type { NavGroup } from '@/types';
@@ -59,6 +60,7 @@ const navigation: NavGroup[] = [
                 href: purchases.index.url(),
                 icon: ShoppingCart,
             },
+            { title: 'Sales', href: sales.index.url(), icon: Receipt },
         ],
     },
     {
@@ -76,10 +78,7 @@ const navigation: NavGroup[] = [
 const upcoming: NavGroup[] = [
     {
         label: 'Trade',
-        items: [
-            { title: 'Sales', href: '/sales', icon: Receipt },
-            { title: 'Expenses', href: '/expenses', icon: Wallet },
-        ],
+        items: [{ title: 'Expenses', href: '/expenses', icon: Wallet }],
     },
 ];
 

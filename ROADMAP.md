@@ -181,15 +181,26 @@ on-hand of 5 @ $7. ✅ — pinned by the first test in `InventoryServiceTest`.
 
 ## Phase 5 — Sales
 
-- [ ] **P5.T1** — `sales` (number, date, status). No customer — see Phase 2.
-- [ ] **P5.T2** — `sale_lines` (product, qty, unit price, discount).
-- [ ] **P5.T3** — `payment_methods` reference table + `sale_payments` (supports partial/split payment).
-- [ ] **P5.T4** — `PostSaleAction`: FIFO issue via `InventoryService`, recording COGS per line.
-- [ ] **P5.T5** — Draft → Posted status machine (returns-ready).
-- [ ] **P5.T6** — Fast POS-style entry screen: barcode/SKU field, add line on Enter, running total, minimal clicks.
-- [ ] **P5.T7** — Sale list + invoice detail with per-line profit.
-- [ ] **P5.T8** — Return-ready scaffolding: nullable `parent_sale_id` + `SaleType` enum, no UI yet.
-- [ ] **P5.T9** — Feature tests: stock decrease, COGS correctness, oversell rejection.
+- [x] **P5.T1** — `sales` (number, date, status, payment method). No customer — see Phase 2.
+- [x] **P5.T2** — `sale_lines` (product, qty, unit price, discount).
+- [x] **P5.T3** — ~~`payment_methods` table + `sale_payments`~~ → a `PaymentMethod` **enum** on the sale. A reference table meant another screen to manage; split and part payment are not needed yet and arrive additively.
+- [x] **P5.T4** — `PostSaleAction`: FIFO issue through `InventoryService`. Cost of sale is **derived** from the batch consumptions, never stored.
+- [x] **P5.T5** — Draft → Posted, one-way. Posted sales refuse edit and delete.
+- [x] **P5.T6** — Till-style entry: scan or type a code and press Enter, same code again adds one more, running total, on-hand warning per line.
+- [x] **P5.T7** — Sale list + invoice detail with per-line cost and profit.
+- [x] **P5.T8** — ~~Return-ready scaffolding (`parent_sale_id`, `SaleType`)~~ — **not built.** A nullable column with no UI is the same speculative layer `location_id` and units turned out to be; returns arrive additively.
+- [x] **P5.T9** — 23 tests: stock decrease, FIFO cost correctness, oversell rejection, all-or-nothing posting.
+
+**Done when:** a sale takes stock out at the right cost and shows what it made. ✅
+
+> Verified end to end in the running app: buying 10 at $18 with $20 freight lands stock at
+> $20 a unit; selling 3 at $44 gives takings of $132, **cost of $60 — not $54** — and a
+> gross profit of $72, with 7 left worth $140. The freight from the purchase is inside the
+> cost of the sale, which is the whole point of the landed-cost work in Phase 4.
+>
+> **Deferred, and worth knowing before this handles real money:** there is still no
+> reversal for a posted purchase or sale. Both are correctly immutable, but nothing yet
+> undoes a mistake — the only recourse is a stock adjustment.
 
 ---
 

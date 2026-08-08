@@ -2,6 +2,8 @@ import { Link, router, usePage } from '@inertiajs/react';
 import { LogOut } from 'lucide-react';
 import { Fragment } from 'react';
 
+import { AppearanceToggle } from '@/components/appearance-toggle';
+import { CurrencySwitcher } from '@/components/currency-switcher';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
     Breadcrumb,
@@ -74,6 +76,9 @@ export function AppTopbar({ breadcrumbs = [] }: { breadcrumbs?: Crumb[] }) {
                 </BreadcrumbList>
             </Breadcrumb>
 
+            <CurrencySwitcher />
+            <AppearanceToggle />
+
             {user && (
                 <DropdownMenu>
                     <DropdownMenuTrigger
@@ -93,18 +98,18 @@ export function AppTopbar({ breadcrumbs = [] }: { breadcrumbs?: Crumb[] }) {
                         </Avatar>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56">
-                        <DropdownMenuLabel>
-                            <div className="grid leading-tight">
-                                <span className="truncate font-medium">
-                                    {user.name}
-                                </span>
-                                <span className="truncate text-xs font-normal text-muted-foreground">
-                                    {user.email}
-                                </span>
-                            </div>
-                        </DropdownMenuLabel>
-                        <DropdownMenuSeparator />
                         <DropdownMenuGroup>
+                            <DropdownMenuLabel>
+                                <div className="grid leading-tight">
+                                    <span className="truncate font-medium">
+                                        {user.name}
+                                    </span>
+                                    <span className="truncate text-xs font-normal text-muted-foreground">
+                                        {user.email}
+                                    </span>
+                                </div>
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                                 onClick={() => router.post(logout.url())}
                             >

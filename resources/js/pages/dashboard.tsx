@@ -1,35 +1,229 @@
-import { Head } from '@inertiajs/react';
-import { LineChart } from 'lucide-react';
+import { Head, Link } from '@inertiajs/react';
+import { ArrowRight, LineChart } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 import { EmptyState } from '@/components/empty-state';
+import { MoneyDisplay } from '@/components/money-display';
 import { PageHeader } from '@/components/page-header';
-import { Card, CardContent } from '@/components/ui/card';
+import {
+    ActivityTable,
+    combineActivity,
+} from '@/components/reports/activity-table';
+import type { ActivityTab } from '@/components/reports/activity-table';
+import { ReportPeriodFilter } from '@/components/reports/report-period-filter';
+import { StatTile } from '@/components/reports/stat-tile';
+import { Button } from '@/components/ui/button';
+import {
+    Card,
+    CardAction,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppLayout from '@/layouts/app-layout';
+import purchases from '@/routes/purchases';
+import { index as reportsIndex } from '@/routes/reports';
 import type { BreadcrumbItem } from '@/types';
+import type { Activity, CashFlow, PeriodProps } from '@/types/reports';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Dashboard' }];
 
-export default function Dashboard() {
+/** How many rows the combined tab shows, matching the per-kind server limit. */
+const COMBINED_LIMIT = 6;
+
+export default function Dashboard({
+    period,
+    presets,
+    cashFlow,
+    previous,
+    recent,
+}: PeriodProps & {
+    cashFlow: CashFlow;
+    previous: CashFlow;
+    recent: Activity;
+}) {
+    const [tab, setTab] = useState<ActivityTab>('all');
+
+    const combined = useMemo(
+        () => combineActivity(recent, COMBINED_LIMIT),
+        [recent],
+    );
+
+    const nothingYet =
+        cashFlow.income === 0 &&
+        cashFlow.outcome === 0 &&
+        combined.length === 0;
+
+    /** The window as the report screen reads it, so both show the same period. */
+    const periodQuery = period.preset
+        ? { preset: period.preset }
+        : { from: period.from, to: period.to };
+
     return (
         <>
             <Head title="Dashboard" />
 
             <PageHeader
                 title="Dashboard"
-                description="Sales, purchases and profit."
+                description={`Trading over ${period.label.toLowerCase()}.`}
+                actions={
+                    <>
+                        <ReportPeriodFilter period={period} presets={presets} />
+                        <Button
+                            variant="outline"
+                            render={
+                                <Link
+                                    href={reportsIndex.url({
+                                        query: periodQuery,
+                                    })}
+                                />
+                            }
+                        >
+                            Reports
+                            <ArrowRight data-icon="inline-end" />
+                        </Button>
+                    </>
+                }
             />
 
-            <Card>
-                <CardContent>
-                    <EmptyState
-                        icon={LineChart}
-                        title="Nothing to show yet"
-                        description="Figures appear once you record purchases and sales."
-                    />
-                </CardContent>
-            </Card>
+            {nothingYet ? (
+                <Card>
+                    <CardContent>
+                        <EmptyState
+                            icon={LineChart}
+                            title="Nothing to show yet"
+                            description="Figures appear once you post a purchase and make a sale."
+                            action={
+                                <Button
+                                    render={<Link href={purchases.create()} />}
+                                >
+                                    Record a purchase
+                                </Button>
+                            }
+                        />
+                    </CardContent>
+                </Card>
+            ) : (
+                <>
+                    <div className="grid gap-4 sm:grid-cols-3">
+                        <StatTile
+                            label="Income"
+                            value={cashFlow.income}
+                            money
+                            previous={previous.income}
+                            hint="Taken on posted sales"
+                        />
+                        <StatTile
+                            label="Outcome"
+                            value={cashFlow.outcome}
+                            money
+                            previous={previous.outcome}
+                            hint="Stock bought and expenses paid"
+                        />
+                        <StatTile
+                            label="Net"
+                            value={cashFlow.net}
+                            money
+                            colored
+                            previous={previous.net}
+                            hint={
+                                <span>
+                                    <MoneyDisplay
+                                        amount={cashFlow.averages.net.per_day}
+                                    />{' '}
+                                    a day
+                                </span>
+                            }
+                        />
+                    </div>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Recent activity</CardTitle>
+                            <CardDescription>
+                                The latest documents of each kind, drafts
+                                included.
+                            </CardDescription>
+                            <CardAction>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    render={
+                                        <Link
+                                            href={reportsIndex.url({
+                                                query: {
+                                                    ...periodQuery,
+                                                    tab: reportTab(tab),
+                                                },
+                                            })}
+                                        />
+                                    }
+                                >
+                                    View all
+                                    <ArrowRight data-icon="inline-end" />
+                                </Button>
+                            </CardAction>
+                        </CardHeader>
+
+                        <CardContent>
+                            <Tabs
+                                value={tab}
+                                onValueChange={(value) =>
+                                    setTab(value as ActivityTab)
+                                }
+                                className="gap-4"
+                            >
+                                <TabsList variant="line">
+                                    <TabsTrigger value="all">All</TabsTrigger>
+                                    <TabsTrigger value="sale">
+                                        Sales
+                                    </TabsTrigger>
+                                    <TabsTrigger value="purchase">
+                                        Purchases
+                                    </TabsTrigger>
+                                    <TabsTrigger value="expense">
+                                        Expenses
+                                    </TabsTrigger>
+                                </TabsList>
+
+                                <TabsContent value="all">
+                                    <ActivityTable tab="all" rows={combined} />
+                                </TabsContent>
+                                <TabsContent value="sale">
+                                    <ActivityTable
+                                        tab="sale"
+                                        rows={recent.sales}
+                                    />
+                                </TabsContent>
+                                <TabsContent value="purchase">
+                                    <ActivityTable
+                                        tab="purchase"
+                                        rows={recent.purchases}
+                                    />
+                                </TabsContent>
+                                <TabsContent value="expense">
+                                    <ActivityTable
+                                        tab="expense"
+                                        rows={recent.expenses}
+                                    />
+                                </TabsContent>
+                            </Tabs>
+                        </CardContent>
+                    </Card>
+                </>
+            )}
         </>
     );
+}
+
+/**
+ * The report tab that answers for a dashboard tab. The combined view lives
+ * under the report's totals rather than in a tab of its own.
+ */
+function reportTab(tab: ActivityTab): string {
+    return tab === 'all' ? 'totals' : tab;
 }
 
 Dashboard.layout = (page: React.ReactNode) => (

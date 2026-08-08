@@ -1,53 +1,45 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
 import { Package, Plus } from 'lucide-react';
+import { useState } from 'react';
 
+import { ProductCreateDrawer } from '@/components/catalog/product-create-drawer';
+import { ProductDrawer } from '@/components/catalog/product-drawer';
+import { QuickPurchaseDialog } from '@/components/catalog/quick-purchase-dialog';
+import { QuickSaleDialog } from '@/components/catalog/quick-sale-dialog';
 import { DataTable } from '@/components/data-table';
 import type { Column } from '@/components/data-table';
 import { EmptyState } from '@/components/empty-state';
 import { MoneyDisplay } from '@/components/money-display';
 import { PageHeader } from '@/components/page-header';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
+import { ButtonGroup } from '@/components/ui/button-group';
 import AppLayout from '@/layouts/app-layout';
-import { create, edit } from '@/routes/products';
 import type { BreadcrumbItem, Paginated, TableState } from '@/types';
-import type { ProductListRow } from '@/types/catalog';
+import type { ProductListRow, SupplierOption } from '@/types/catalog';
+import type { PaymentMethodOption } from '@/types/sales';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Products' }];
 
-const ANY = 'any';
-
+/**
+ * The catalogue is the whole product UI. Editing opens beside the list,
+ * adding rises from the bottom of it, and the two things done all day —
+ * buying and selling one thing — are a button on the row itself.
+ */
 export default function ProductsIndex({
     rows,
     table,
+    suppliers,
+    paymentMethods,
 }: {
     rows: Paginated<ProductListRow>;
     table: TableState;
+    suppliers: SupplierOption[];
+    paymentMethods: PaymentMethodOption[];
 }) {
-    function applyFilter(key: string, value: string) {
-        const url = new URL(window.location.href);
-
-        if (value === ANY) {
-            url.searchParams.delete(key);
-        } else {
-            url.searchParams.set(key, value);
-        }
-
-        url.searchParams.delete('page');
-
-        router.get(
-            `${url.pathname}${url.search}`,
-            {},
-            { preserveState: true, preserveScroll: true },
-        );
-    }
+    const [creating, setCreating] = useState(false);
+    const [editing, setEditing] = useState<ProductListRow | null>(null);
+    const [buying, setBuying] = useState<ProductListRow | null>(null);
+    const [selling, setSelling] = useState<ProductListRow | null>(null);
 
     const columns: Column<ProductListRow>[] = [
         {
@@ -55,59 +47,84 @@ export default function ProductsIndex({
             header: 'Product',
             sortable: true,
             cell: (row) => (
-                <Link
-                    href={edit(row.id)}
-                    className="font-medium hover:underline"
-                >
-                    {row.name}
-                </Link>
+                <div className="flex flex-col">
+                    <span className="font-medium">{row.name}</span>
+                    {row.description && (
+                        <span className="line-clamp-1 text-xs text-muted-foreground">
+                            {row.description}
+                        </span>
+                    )}
+                </div>
             ),
         },
         {
-            key: 'code',
-            header: 'Code',
+            key: 'quantity',
+            header: 'In stock',
             sortable: true,
+            align: 'right',
             cell: (row) => (
-                <span className="font-mono text-sm text-muted-foreground">
-                    {row.code}
+                <span
+                    className={
+                        row.quantity === 0
+                            ? 'text-muted-foreground tabular-nums'
+                            : 'font-medium tabular-nums'
+                    }
+                >
+                    {row.quantity}
                 </span>
             ),
         },
         {
-            key: 'default_cost_price',
+            key: 'cost_price',
             header: 'Cost',
             sortable: true,
             align: 'right',
             hideOnMobile: true,
-            cell: (row) =>
-                row.default_cost_price === null ? (
-                    <span className="text-muted-foreground">—</span>
-                ) : (
-                    <MoneyDisplay amount={row.default_cost_price} />
-                ),
+            cell: (row) => <MoneyDisplay amount={row.cost_price} />,
         },
         {
-            key: 'default_selling_price',
+            key: 'selling_price',
             header: 'Price',
             sortable: true,
             align: 'right',
-            cell: (row) =>
-                row.default_selling_price === null ? (
-                    <span className="text-muted-foreground">—</span>
-                ) : (
-                    <MoneyDisplay amount={row.default_selling_price} />
-                ),
+            hideOnMobile: true,
+            cell: (row) => <MoneyDisplay amount={row.selling_price} />,
         },
         {
-            key: 'is_active',
-            header: 'Status',
+            key: 'actions',
+            header: '',
             align: 'right',
-            cell: (row) =>
-                row.is_active ? (
-                    <Badge variant="secondary">Active</Badge>
-                ) : (
-                    <Badge variant="outline">Archived</Badge>
-                ),
+            // The row opens the drawer, so the buttons have to keep their own
+            // clicks to themselves.
+            cell: (row) => (
+                <div
+                    className="flex justify-end"
+                    onClick={(event) => event.stopPropagation()}
+                >
+                    <ButtonGroup>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setBuying(row)}
+                        >
+                            Buy
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={row.quantity === 0}
+                            title={
+                                row.quantity === 0
+                                    ? 'Nothing in stock'
+                                    : undefined
+                            }
+                            onClick={() => setSelling(row)}
+                        >
+                            Sell
+                        </Button>
+                    </ButtonGroup>
+                </div>
+            ),
         },
     ];
 
@@ -117,9 +134,9 @@ export default function ProductsIndex({
 
             <PageHeader
                 title="Products"
-                description="What you buy and sell."
+                description="What you buy and sell, and how much of it is on the shelf."
                 actions={
-                    <Button render={<Link href={create()} />}>
+                    <Button onClick={() => setCreating(true)}>
                         <Plus data-icon="inline-start" />
                         New product
                     </Button>
@@ -131,27 +148,8 @@ export default function ProductsIndex({
                 columns={columns}
                 state={table}
                 getRowKey={(row) => row.id}
-                searchPlaceholder="Search name or code"
-                toolbar={
-                    <Select
-                        value={table.filters.status ?? ANY}
-                        onValueChange={(value) =>
-                            applyFilter('status', String(value))
-                        }
-                    >
-                        <SelectTrigger
-                            className="w-36"
-                            aria-label="Filter by status"
-                        >
-                            <SelectValue placeholder="Status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value={ANY}>Any status</SelectItem>
-                            <SelectItem value="active">Active</SelectItem>
-                            <SelectItem value="inactive">Archived</SelectItem>
-                        </SelectContent>
-                    </Select>
-                }
+                searchPlaceholder="Search products"
+                onRowClick={(row) => setEditing(row)}
                 empty={
                     <EmptyState
                         icon={Package}
@@ -162,13 +160,32 @@ export default function ProductsIndex({
                                 : 'Add your first product to get started.'
                         }
                         action={
-                            <Button render={<Link href={create()} />}>
+                            <Button onClick={() => setCreating(true)}>
                                 <Plus data-icon="inline-start" />
                                 New product
                             </Button>
                         }
                     />
                 }
+            />
+
+            <ProductCreateDrawer open={creating} onOpenChange={setCreating} />
+
+            <ProductDrawer
+                product={editing}
+                onOpenChange={(open) => !open && setEditing(null)}
+            />
+
+            <QuickPurchaseDialog
+                product={buying}
+                suppliers={suppliers}
+                onOpenChange={(open) => !open && setBuying(null)}
+            />
+
+            <QuickSaleDialog
+                product={selling}
+                paymentMethods={paymentMethods}
+                onOpenChange={(open) => !open && setSelling(null)}
             />
         </>
     );

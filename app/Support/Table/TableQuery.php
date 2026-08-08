@@ -3,10 +3,10 @@
 namespace App\Support\Table;
 
 use Closure;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
 use InvalidArgumentException;
 
@@ -187,6 +187,21 @@ final class TableQuery
         // rather than the global one, so an explicitly injected request
         // paginates the same rows it filtered.
         return $paginator->appends(Arr::except($this->request->query(), 'page'));
+    }
+
+    /**
+     * Total a column across everything the current filters match, ignoring
+     * pagination — the figure someone came to a filtered list to see.
+     *
+     * Applies the same search, filters and date range as `paginate()`, so the
+     * total always describes the rows on screen rather than the whole table.
+     */
+    public function sum(string $column): int
+    {
+        $this->applySearch();
+        $this->applyFilters();
+
+        return (int) $this->query->sum($column);
     }
 
     /**

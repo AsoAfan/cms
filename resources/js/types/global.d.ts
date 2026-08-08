@@ -1,4 +1,4 @@
-import type { Currency, FlashToast } from '@/types/app';
+import type { Appearance, Currency, FlashToast } from '@/types/app';
 import type { Auth } from '@/types/auth';
 
 declare module 'react' {
@@ -15,6 +15,7 @@ declare module '@inertiajs/core' {
             auth: Auth;
             currency: Currency;
             sidebarOpen: boolean;
+            appearance: Appearance;
             [key: string]: unknown;
         };
         flashDataType: {

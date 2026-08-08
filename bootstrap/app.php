@@ -18,6 +18,15 @@ return Application::configure(basePath: dirname(__DIR__))
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
+
+        // All three are written by the frontend in plain text, so they must be
+        // exempt from cookie encryption or they fail to decrypt and are
+        // dropped before HandleInertiaRequests can read them back.
+        $middleware->encryptCookies(except: [
+            'appearance',
+            'sidebar_state',
+            'display_currency',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

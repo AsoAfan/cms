@@ -12,39 +12,34 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 class ProductFactory extends Factory
 {
     /**
+     * Dinar-scale figures: a few thousand to a few hundred thousand, which is
+     * what the goods this catalogue holds actually cost.
+     *
      * @return array<string, mixed>
      */
     public function definition(): array
     {
-        $cost = fake()->numberBetween(100, 50_000);
+        $cost = fake()->numberBetween(2_500, 250_000) * Money::SUBUNITS;
 
         return [
             'name' => ucfirst(fake()->unique()->word()).' '.ucfirst(fake()->word()),
-            'code' => mb_strtoupper(fake()->unique()->bothify('???-####')),
             'description' => fake()->optional()->sentence(),
-            'default_cost_price' => Money::fromMinorUnits($cost),
+            'cost_price' => Money::fromMinorUnits($cost),
             // A plausible margin, so seeded reports are not nonsense.
-            'default_selling_price' => Money::fromMinorUnits(
+            'selling_price' => Money::fromMinorUnits(
                 (int) round($cost * fake()->randomFloat(2, 1.2, 2.0))
             ),
-            'is_active' => true,
         ];
     }
 
     /**
-     * Not yet priced — both defaults null, which is a real state in the
-     * catalogue rather than a zero standing in for one.
+     * A product priced exactly, given as it would be typed: `->priced('18000', '32000')`.
      */
-    public function unpriced(): static
+    public function priced(string|int $cost, string|int $selling): static
     {
         return $this->state(fn (array $attributes): array => [
-            'default_cost_price' => null,
-            'default_selling_price' => null,
+            'cost_price' => Money::fromDecimal((string) $cost),
+            'selling_price' => Money::fromDecimal((string) $selling),
         ]);
-    }
-
-    public function inactive(): static
-    {
-        return $this->state(fn (array $attributes): array => ['is_active' => false]);
     }
 }

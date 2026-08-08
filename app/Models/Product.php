@@ -13,23 +13,23 @@ use Illuminate\Support\Carbon;
  * The stock-keeping entity. Purchases, sales and the stock ledger all
  * reference this directly.
  *
+ * Both prices are required and are held in the base currency. They pre-fill
+ * data entry; the price a transaction actually went through at is recorded on
+ * that transaction and is what every report reads.
+ *
  * @property int $id
  * @property string $name
- * @property string $code
  * @property string|null $description
- * @property Money|null $default_cost_price
- * @property Money|null $default_selling_price
- * @property bool $is_active
+ * @property Money $cost_price
+ * @property Money $selling_price
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
 #[Fillable([
     'name',
-    'code',
     'description',
-    'default_cost_price',
-    'default_selling_price',
-    'is_active',
+    'cost_price',
+    'selling_price',
 ])]
 class Product extends Model
 {
@@ -42,9 +42,8 @@ class Product extends Model
     protected function casts(): array
     {
         return [
-            'default_cost_price' => Money::class,
-            'default_selling_price' => Money::class,
-            'is_active' => 'boolean',
+            'cost_price' => Money::class,
+            'selling_price' => Money::class,
         ];
     }
 }

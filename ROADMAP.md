@@ -208,11 +208,22 @@ on-hand of 5 @ $7. ✅ — pinned by the first test in `InventoryServiceTest`.
 
 Small and fully independent — good parallel work alongside Phase 4/5.
 
-- [ ] **P6.T1** — `expense_categories` migration + seeder (Rent, Salaries, Transport, Utilities, Marketing, Misc).
-- [ ] **P6.T2** — `expenses` (category, amount, date, payment method, reference, notes).
-- [ ] **P6.T3** — Expense CRUD + list with date-range and category filters.
-- [ ] **P6.T4** — Category management screen.
-- [ ] **P6.T5** — Feature tests, plus an arch test asserting expenses never touch inventory.
+- [x] **P6.T1** — `expense_categories` migration + seeder (Rent, Salaries, Transport, Utilities, Marketing, Miscellaneous). A table rather than an enum: every business names its own costs.
+- [x] **P6.T2** — `expenses` (category, amount, date, payment method, reference, notes).
+- [x] **P6.T3** — Expense CRUD + list with a date-range picker, category and payment filters, and a running total for whatever is filtered.
+- [x] **P6.T4** — Category management — a dialog on the expenses screen rather than a screen of its own. A category with expenses against it cannot be deleted.
+- [x] **P6.T5** — 18 feature tests, plus **two** arch tests: expenses never reach inventory, and inventory never reaches expenses.
+
+**Done when:** you can record what it costs to trade and total it over any period. ✅
+
+> **Why the arch test matters.** Buying goods increases inventory and only becomes a cost
+> when they sell; rent is a cost the moment it is paid. Letting expenses touch the ledger
+> would double-count the first and mistime the second. In P7, expenses enter only at the
+> last subtraction: net profit = gross profit − expenses, never inside COGS.
+>
+> This is also the first use of the `DateRangePicker` built in P0.T6, wired to `from`/`to`
+> query params through `TableQuery::dateRange()`. `TableQuery` gained `sum()` so a filtered
+> list can show its own total — P7's report screens will want the same.
 
 ---
 

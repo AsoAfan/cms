@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\Catalog\ProductController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Expenses\ExpenseCategoryController;
+use App\Http\Controllers\Expenses\ExpenseController;
 use App\Http\Controllers\Inventory\StockController;
 use App\Http\Controllers\Purchasing\PurchaseController;
 use App\Http\Controllers\Sales\SaleController;
@@ -21,6 +23,11 @@ Route::middleware('auth')->group(function (): void {
 
     Route::resource('sales', SaleController::class);
     Route::post('sales/{sale}/post', [SaleController::class, 'post'])->name('sales.post');
+
+    Route::resource('expenses', ExpenseController::class)->only(['index', 'store', 'update', 'destroy']);
+    Route::resource('expense-categories', ExpenseCategoryController::class)
+        ->only(['store', 'update', 'destroy'])
+        ->parameters(['expense-categories' => 'category']);
 
     Route::get('stock', [StockController::class, 'index'])->name('stock.index');
     Route::post('stock', [StockController::class, 'store'])->name('stock.store');

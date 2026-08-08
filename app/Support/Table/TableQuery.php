@@ -190,6 +190,21 @@ final class TableQuery
     }
 
     /**
+     * Total a column across everything the current filters match, ignoring
+     * pagination — the figure someone came to a filtered list to see.
+     *
+     * Applies the same search, filters and date range as `paginate()`, so the
+     * total always describes the rows on screen rather than the whole table.
+     */
+    public function sum(string $column): int
+    {
+        $this->applySearch();
+        $this->applyFilters();
+
+        return (int) $this->query->sum($column);
+    }
+
+    /**
      * The table state to hand back to the frontend so the UI can render the
      * active sort arrow, the search box contents and the selected filters.
      *

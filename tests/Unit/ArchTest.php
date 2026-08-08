@@ -62,3 +62,34 @@ arch('read models are final and expose a single entry point')
 arch('api resources extend the framework base')
     ->expect('App\Http\Resources')
     ->toExtend(JsonResource::class);
+
+/*
+|--------------------------------------------------------------------------
+| Expenses are not purchases
+|--------------------------------------------------------------------------
+|
+| Buying goods to resell increases inventory and only becomes a cost when the
+| goods are sold. Rent is a cost the moment it is paid. Letting expenses reach
+| the stock ledger would double-count the first and mistime the second.
+|
+*/
+
+arch('expenses never touch inventory')
+    ->expect([
+        'App\Models\Expense',
+        'App\Models\ExpenseCategory',
+        'App\Http\Controllers\Expenses',
+        'App\Http\Requests\Expenses',
+    ])
+    ->not->toUse([
+        'App\Services\InventoryService',
+        'App\Models\StockMovement',
+        'App\Models\StockBatch',
+        'App\Models\StockBatchConsumption',
+        'App\Queries\StockOnHandQuery',
+        'App\Queries\InventoryValuationQuery',
+    ]);
+
+arch('inventory never reaches for expenses')
+    ->expect(['App\Services\InventoryService', 'App\Queries'])
+    ->not->toUse(['App\Models\Expense', 'App\Models\ExpenseCategory']);

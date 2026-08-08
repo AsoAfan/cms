@@ -23,6 +23,7 @@ import {
     SidebarRail,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import expenses from '@/routes/expenses';
 import products from '@/routes/products';
 import purchases from '@/routes/purchases';
 import sales from '@/routes/sales';
@@ -61,6 +62,7 @@ const navigation: NavGroup[] = [
                 icon: ShoppingCart,
             },
             { title: 'Sales', href: sales.index.url(), icon: Receipt },
+            { title: 'Expenses', href: expenses.index.url(), icon: Wallet },
         ],
     },
     {
@@ -68,17 +70,6 @@ const navigation: NavGroup[] = [
         items: [
             { title: 'Suppliers', href: suppliers.index.url(), icon: Truck },
         ],
-    },
-];
-
-/**
- * Destinations still to be built, shown disabled so the shape of the app is
- * visible from day one. Each is removed from here as its phase delivers it.
- */
-const upcoming: NavGroup[] = [
-    {
-        label: 'Trade',
-        items: [{ title: 'Expenses', href: '/expenses', icon: Wallet }],
     },
 ];
 
@@ -130,27 +121,6 @@ export function AppSidebar() {
                                                     prefetch
                                                 />
                                             }
-                                        >
-                                            <item.icon />
-                                            <span>{item.title}</span>
-                                        </SidebarMenuButton>
-                                    </SidebarMenuItem>
-                                ))}
-                            </SidebarMenu>
-                        </SidebarGroupContent>
-                    </SidebarGroup>
-                ))}
-
-                {upcoming.map((group) => (
-                    <SidebarGroup key={group.label}>
-                        <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-                        <SidebarGroupContent>
-                            <SidebarMenu>
-                                {group.items.map((item) => (
-                                    <SidebarMenuItem key={item.href}>
-                                        <SidebarMenuButton
-                                            disabled
-                                            tooltip={`${item.title} — coming soon`}
                                         >
                                             <item.icon />
                                             <span>{item.title}</span>

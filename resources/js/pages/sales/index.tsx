@@ -1,38 +1,58 @@
 import { Head, Link, router } from '@inertiajs/react';
 import { Plus, Receipt } from 'lucide-react';
+import { useState } from 'react';
 
 import { DataTable } from '@/components/data-table';
 import type { Column } from '@/components/data-table';
+import { StatusBadge } from '@/components/document-status';
 import { EmptyState } from '@/components/empty-state';
 import { MoneyDisplay } from '@/components/money-display';
+import { OptionSelect } from '@/components/option-select';
 import { PageHeader } from '@/components/page-header';
-import { Badge } from '@/components/ui/badge';
+import { SaleDrawer } from '@/components/sales/sale-drawer';
 import { Button } from '@/components/ui/button';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
-import { create, edit, show } from '@/routes/sales';
+import { show as showCustomer } from '@/routes/customers';
+import { show } from '@/routes/sales';
 import type { BreadcrumbItem, Paginated, TableState } from '@/types';
-import type { PaymentMethodOption, SaleListRow } from '@/types/sales';
+import type { BankOption } from '@/types/banks';
+import type { SaleCustomer } from '@/types/customers';
+import type {
+    PaymentMethodOption,
+    SaleListRow,
+    SaleStatusOption,
+    SellableProduct,
+} from '@/types/sales';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Sales' }];
 
 const ANY = 'any';
 
+/**
+ * The list is the whole sales screen. Ringing one up rises from the bottom of
+ * it, as adding a product does on the catalogue, and a row opens the invoice.
+ */
 export default function SalesIndex({
     rows,
     table,
+    nextNumber,
+    products,
     paymentMethods,
+    banks,
+    statuses,
+    customers,
 }: {
     rows: Paginated<SaleListRow>;
     table: TableState;
+    nextNumber: string;
+    products: SellableProduct[];
     paymentMethods: PaymentMethodOption[];
+    banks: BankOption[];
+    statuses: SaleStatusOption[];
+    customers: SaleCustomer[];
 }) {
+    const [creating, setCreating] = useState(false);
+
     function applyFilter(key: string, value: string) {
         const url = new URL(window.location.href);
 
@@ -54,14 +74,24 @@ export default function SalesIndex({
     const columns: Column<SaleListRow>[] = [
         {
             key: 'number',
-            header: 'Number',
+            header: 'Invoice',
             sortable: true,
             cell: (row) => (
+                <span className="font-mono font-medium">{row.number}</span>
+            ),
+        },
+        {
+            key: 'customer',
+            header: 'Customer',
+            // The row opens the sale, so the one link that goes somewhere else
+            // has to keep its click to itself.
+            cell: (row) => (
                 <Link
-                    href={row.status === 'posted' ? show(row.id) : edit(row.id)}
-                    className="font-mono font-medium hover:underline"
+                    href={showCustomer(row.customer_id)}
+                    className="hover:underline"
+                    onClick={(event) => event.stopPropagation()}
                 >
-                    {row.number}
+                    {row.customer}
                 </Link>
             ),
         },
@@ -78,6 +108,7 @@ export default function SalesIndex({
             cell: (row) => (
                 <span className="text-muted-foreground">
                     {row.payment_method}
+                    {row.bank && ` · ${row.bank}`}
                 </span>
             ),
         },
@@ -97,18 +128,41 @@ export default function SalesIndex({
             cell: (row) => <MoneyDisplay amount={row.total} />,
         },
         {
+            // Zero until the goods are the customer's, so an order on its way
+            // reads as owing nothing — because nothing is owed on it yet.
+            key: 'outstanding',
+            header: 'Owed',
+            align: 'right',
+            hideOnMobile: true,
+            cell: (row) =>
+                row.outstanding === 0 ? (
+                    <span className="text-muted-foreground">—</span>
+                ) : (
+                    <MoneyDisplay
+                        amount={row.outstanding}
+                        className="font-medium"
+                    />
+                ),
+        },
+        {
             key: 'status',
             header: 'Status',
             sortable: true,
             align: 'right',
-            cell: (row) =>
-                row.status === 'posted' ? (
-                    <Badge variant="secondary">Posted</Badge>
-                ) : (
-                    <Badge variant="outline">Draft</Badge>
-                ),
+            cell: (row) => (
+                <div className="flex justify-end">
+                    <StatusBadge status={row.status} statuses={statuses} />
+                </div>
+            ),
         },
     ];
+
+    const newButton = (
+        <Button onClick={() => setCreating(true)}>
+            <Plus data-icon="inline-start" />
+            New sale
+        </Button>
+    );
 
     return (
         <>
@@ -117,12 +171,7 @@ export default function SalesIndex({
             <PageHeader
                 title="Sales"
                 description="What you sold, and what it made."
-                actions={
-                    <Button render={<Link href={create()} />}>
-                        <Plus data-icon="inline-start" />
-                        New sale
-                    </Button>
-                }
+                actions={newButton}
             />
 
             <DataTable
@@ -131,51 +180,53 @@ export default function SalesIndex({
                 state={table}
                 getRowKey={(row) => row.id}
                 searchPlaceholder="Search number or notes"
+                onRowClick={(row) => router.visit(show.url(row.id))}
                 toolbar={
                     <>
-                        <Select
+                        <OptionSelect
+                            className="w-36"
+                            aria-label="Filter by status"
                             value={table.filters.status ?? ANY}
-                            onValueChange={(value) =>
-                                applyFilter('status', String(value))
-                            }
-                        >
-                            <SelectTrigger
-                                className="w-32"
-                                aria-label="Filter by status"
-                            >
-                                <SelectValue placeholder="Status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value={ANY}>Any status</SelectItem>
-                                <SelectItem value="draft">Draft</SelectItem>
-                                <SelectItem value="posted">Posted</SelectItem>
-                            </SelectContent>
-                        </Select>
+                            options={[
+                                { value: ANY, label: 'Any status' },
+                                ...statuses,
+                            ]}
+                            onChange={(value) => applyFilter('status', value)}
+                            placeholder="Status"
+                        />
 
-                        <Select
+                        <OptionSelect
+                            className="w-40"
+                            aria-label="Filter by payment"
                             value={table.filters.payment_method ?? ANY}
-                            onValueChange={(value) =>
-                                applyFilter('payment_method', String(value))
+                            options={[
+                                { value: ANY, label: 'Any payment' },
+                                ...paymentMethods,
+                            ]}
+                            onChange={(value) =>
+                                applyFilter('payment_method', value)
                             }
-                        >
-                            <SelectTrigger
+                            placeholder="Payment"
+                        />
+
+                        {banks.length > 0 && (
+                            <OptionSelect
                                 className="w-40"
-                                aria-label="Filter by payment"
-                            >
-                                <SelectValue placeholder="Payment" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value={ANY}>Any payment</SelectItem>
-                                {paymentMethods.map((method) => (
-                                    <SelectItem
-                                        key={method.value}
-                                        value={method.value}
-                                    >
-                                        {method.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                                aria-label="Filter by bank"
+                                value={table.filters.bank_id ?? ANY}
+                                options={[
+                                    { value: ANY, label: 'Any bank' },
+                                    ...banks.map((bank) => ({
+                                        value: String(bank.id),
+                                        label: bank.name,
+                                    })),
+                                ]}
+                                onChange={(value) =>
+                                    applyFilter('bank_id', value)
+                                }
+                                placeholder="Bank"
+                            />
+                        )}
                     </>
                 }
                 empty={
@@ -187,14 +238,20 @@ export default function SalesIndex({
                                 ? `Nothing matches "${table.search}".`
                                 : 'Ring up your first sale.'
                         }
-                        action={
-                            <Button render={<Link href={create()} />}>
-                                <Plus data-icon="inline-start" />
-                                New sale
-                            </Button>
-                        }
+                        action={newButton}
                     />
                 }
+            />
+
+            <SaleDrawer
+                open={creating}
+                onOpenChange={setCreating}
+                products={products}
+                paymentMethods={paymentMethods}
+                banks={banks}
+                statuses={statuses}
+                customers={customers}
+                nextNumber={nextNumber}
             />
         </>
     );

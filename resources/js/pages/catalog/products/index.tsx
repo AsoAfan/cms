@@ -15,7 +15,9 @@ import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem, Paginated, TableState } from '@/types';
-import type { ProductListRow, SupplierOption } from '@/types/catalog';
+import type { BankOption } from '@/types/banks';
+import type { ProductListRow } from '@/types/catalog';
+import type { SaleCustomer } from '@/types/customers';
 import type { PaymentMethodOption } from '@/types/sales';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Products' }];
@@ -28,13 +30,15 @@ const breadcrumbs: BreadcrumbItem[] = [{ title: 'Products' }];
 export default function ProductsIndex({
     rows,
     table,
-    suppliers,
     paymentMethods,
+    banks,
+    customers,
 }: {
     rows: Paginated<ProductListRow>;
     table: TableState;
-    suppliers: SupplierOption[];
     paymentMethods: PaymentMethodOption[];
+    banks: BankOption[];
+    customers: SaleCustomer[];
 }) {
     const [creating, setCreating] = useState(false);
     const [editing, setEditing] = useState<ProductListRow | null>(null);
@@ -109,15 +113,12 @@ export default function ProductsIndex({
                         >
                             Buy
                         </Button>
+                        {/* Not disabled on an empty shelf: both of these write
+                            an order, and an order for something not in yet is
+                            an ordinary thing to take. */}
                         <Button
                             variant="outline"
                             size="sm"
-                            disabled={row.quantity === 0}
-                            title={
-                                row.quantity === 0
-                                    ? 'Nothing in stock'
-                                    : undefined
-                            }
                             onClick={() => setSelling(row)}
                         >
                             Sell
@@ -178,13 +179,14 @@ export default function ProductsIndex({
 
             <QuickPurchaseDialog
                 product={buying}
-                suppliers={suppliers}
                 onOpenChange={(open) => !open && setBuying(null)}
             />
 
             <QuickSaleDialog
                 product={selling}
                 paymentMethods={paymentMethods}
+                banks={banks}
+                customers={customers}
                 onOpenChange={(open) => !open && setSelling(null)}
             />
         </>

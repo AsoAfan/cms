@@ -6,6 +6,7 @@ use App\Http\Concerns\InteractsWithReports;
 use App\Http\Controllers\Controller;
 use App\Queries\ActivityQuery;
 use App\Queries\CashFlowQuery;
+use App\Queries\CustomerBalanceQuery;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -30,6 +31,7 @@ class ReportController extends Controller
     public function __construct(
         private readonly CashFlowQuery $cashFlow,
         private readonly ActivityQuery $activity,
+        private readonly CustomerBalanceQuery $balances,
     ) {}
 
     public function __invoke(): Response
@@ -43,6 +45,10 @@ class ReportController extends Controller
             // tile can say whether it is up or down on a like-for-like window.
             'previous' => $this->cashFlow->get($period->previous()),
             'activity' => $this->activity->get($period),
+            // What customers owe is a position, not a flow: it is what is unpaid
+            // today, whatever window the rest of the screen is showing. That is
+            // why it sits outside the period query rather than inside it.
+            'owed' => $this->balances->total()->minorUnits,
         ]);
     }
 }

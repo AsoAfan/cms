@@ -24,11 +24,8 @@ export type ProductFormData = {
     selling_price_currency: string;
 };
 
-export type SupplierOption = { id: number; name: string };
-
-/** The one-line purchase posted from the catalogue. */
+/** The one-line purchase recorded from the catalogue. */
 export type QuickPurchaseForm = {
-    supplier_id: string;
     quantity: string;
     unit_cost: string;
     unit_cost_currency: string;
@@ -36,12 +33,16 @@ export type QuickPurchaseForm = {
     invoiced_on: string;
 };
 
-/** The one-line sale posted from the catalogue. */
+/** The one-line sale recorded from the catalogue. */
 export type QuickSaleForm = {
     quantity: string;
     unit_price: string;
     unit_price_currency: string;
     currency: string;
     payment_method: string;
+    /** Which account took the money. Empty on cash. */
+    bank_id: string;
     sold_on: string;
+    /** Who bought it. Walk-in unless somebody is named. */
+    customer_id: number | null;
 };

@@ -4,18 +4,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Base Currency
+    | Opening Base Currency
     |--------------------------------------------------------------------------
     |
-    | Every amount in the system is STORED as a whole number of minor units of
-    | this currency (see App\Support\Money). Reports, the stock ledger and every
-    | derived figure are in it too, and none of them know that other currencies
-    | exist.
+    | Which currencies exist, and which one the books are kept in, live in the
+    | `currencies` table — they are facts about a business, not about a
+    | deployment. Manage them on Settings → Exchange rates.
     |
-    | Foreign currency lives only at the two edges: an amount may be TYPED in
-    | one (converted to base once, in the Form Request) and the whole UI may be
-    | VIEWED in one (converted for display only). Changing this value re-labels
-    | existing amounts under a different currency; it does not convert them.
+    | This value is only the code the seeder opens the books in, and the fallback
+    | `CurrencyService::base()` uses before the first currency row exists.
+    | Changing it does not move the base of an application already in use; that
+    | is `CurrencyService::makeBase()`, and it is refused once money is recorded.
     |
     */
 
@@ -37,55 +36,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Known Currencies
+    | Opening Currencies
     |--------------------------------------------------------------------------
     |
-    | The currencies an amount may be entered or viewed in. The base currency
-    | must appear here. `fraction_digits` is a DISPLAY concern only — storage is
-    | always two decimal places, whatever a currency is conventionally quoted
-    | in, so that splitting a landed cost stays exact.
+    | Seeded on a fresh install so there is something to trade in on day one.
+    | Add, remove and re-base from the settings screen after that — this array
+    | is never read again.
     |
-    | Dinars are not quoted in fils in practice, hence 0 for IQD. A converted
-    | amount may still hold a fraction of a dinar internally; it is simply never
-    | shown.
+    | `fraction_digits` is a DISPLAY concern only. Storage is always two decimal
+    | places, whatever a currency is conventionally quoted in, so that splitting
+    | a landed cost stays exact. Dinars are not quoted in fils, hence 0.
     |
     */
 
-    'currencies' => [
+    'seed_currencies' => [
 
-        'IQD' => [
-            'name' => 'Iraqi dinar',
-            'symbol' => 'IQD',
-            'fraction_digits' => 0,
-        ],
-
-        'USD' => [
-            'name' => 'US dollar',
-            'symbol' => '$',
-            'fraction_digits' => 2,
-        ],
-
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Exchange Rates
-    |--------------------------------------------------------------------------
-    |
-    | Rates are read from the `exchange_rates` table and nowhere else. This
-    | endpoint is called only by the scheduled `currency:sync` command and the
-    | Sync button on the rates screen — never during ordinary page requests.
-    |
-    | open.er-api.com is free, needs no key and publishes IQD. The ECB feed
-    | (Frankfurter) does not, which rules it out for this application.
-    |
-    */
-
-    'rates' => [
-
-        'endpoint' => env('EXCHANGE_RATE_ENDPOINT', 'https://open.er-api.com/v6/latest/USD'),
-
-        'timeout' => (int) env('EXCHANGE_RATE_TIMEOUT', 10),
+        ['code' => 'IQD', 'name' => 'Iraqi dinar', 'symbol' => 'IQD', 'fraction_digits' => 0],
+        ['code' => 'USD', 'name' => 'US dollar', 'symbol' => '$', 'fraction_digits' => 2],
 
     ],
 

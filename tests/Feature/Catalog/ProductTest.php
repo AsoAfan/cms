@@ -35,7 +35,6 @@ it('shows the product list', function () {
             ->component('catalog/products/index')
             ->has('rows.data', 1)
             ->where('rows.data.0.name', 'Voile Panel')
-            ->has('suppliers')
             ->has('paymentMethods')
         );
 });

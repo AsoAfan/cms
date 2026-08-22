@@ -4,9 +4,11 @@ namespace App\Queries;
 
 use App\Enums\PurchaseStatus;
 use App\Enums\SaleStatus;
+use App\Models\CustomerPayment;
 use App\Models\Expense;
 use App\Models\PurchaseAdditionalCost;
 use App\Models\PurchaseLine;
+use App\Models\Sale;
 use App\Models\SaleLine;
 use App\Support\Money;
 use App\Support\ReportPeriod;
@@ -15,9 +17,18 @@ use Illuminate\Database\Query\Builder;
 /**
  * Money in and money out over a period.
  *
- *     income  = what was sold
- *     outcome = what was bought + what was spent running the place
- *     net     = income − outcome
+ *     income    = what was sold
+ *     collected = what was actually taken for it
+ *     outcome   = what was bought + what was spent running the place
+ *     net       = income − outcome
+ *
+ * **Income and collected are not the same figure, and both are here on purpose.**
+ * A sale on account is income the day it is delivered and cash on the day the
+ * customer pays, which can be months later or never. Income says what the shop
+ * sold; collected says what came through the door — the money handed over at the
+ * time of sale, plus every repayment received in the window, including
+ * repayments of sales invoiced long before it. Net is measured on income, so a
+ * shop that sells well on credit does not read as a shop that is failing.
  *
  * This is a **cash view, not a profit and loss**. Outcome is what left the
  * bank in the window, so a month with a big stock order reads as a loss even
@@ -28,9 +39,15 @@ use Illuminate\Database\Query\Builder;
  * That is the whole of the reporting engine on purpose: three figures a shop
  * owner can check daily beat six screens nobody opens.
  *
- * Posted documents only, scoped by the document's own date — `sales.sold_on`,
- * `purchases.invoiced_on`, `expenses.spent_on`. A draft has not put anything
- * on a shelf and nobody has paid for it.
+ * Scoped by the document's own date — `sales.sold_on`, `purchases.invoiced_on`,
+ * `expenses.spent_on`, `customer_payments.received_on`.
+ *
+ * **A sale counts once it is delivered**, not when it is sent out. The money and
+ * the debt begin together, at the moment the goods become the customer's, so the
+ * reported income and what customers owe can never describe different sets of
+ * invoices. Stock still leaves a status earlier (see `SaleStatus`) — goods with a
+ * driver are off the shelf but not yet sold — which is the one place the ledger
+ * and the money view deliberately part company.
  */
 final class CashFlowQuery
 {
@@ -47,6 +64,7 @@ final class CashFlowQuery
     /**
      * @return array{
      *     income: Money,
+     *     collected: Money,
      *     purchases: Money,
      *     expenses: Money,
      *     outcome: Money,
@@ -70,6 +88,9 @@ final class CashFlowQuery
 
         return [
             'income' => $income,
+            // What actually came through the door, which on credit terms is a
+            // different figure from what was sold.
+            'collected' => $this->collected($period),
             // Kept apart so the outcome tile can say what the money went on.
             'purchases' => $purchases,
             'expenses' => $expenses,
@@ -87,14 +108,15 @@ final class CashFlowQuery
     }
 
     /**
-     * Takings on posted sales invoiced in the period.
+     * What was sold in the period: the takings invoiced on delivered sales,
+     * whether or not the customer has paid for them yet.
      */
     private function income(ReportPeriod $period): Money
     {
         $query = SaleLine::query()
             ->toBase()
             ->join('sales', 'sales.id', '=', 'sale_lines.sale_id')
-            ->where('sales.status', SaleStatus::Posted->value);
+            ->where('sales.status', SaleStatus::Proceed->value);
 
         return $this->total(
             $this->within($query, 'sales.sold_on', $period),
@@ -103,7 +125,34 @@ final class CashFlowQuery
     }
 
     /**
-     * What posted purchases landed at: the goods, plus the freight and duty
+     * What came through the door in the period.
+     *
+     * Two sources, and both are money: what customers handed over at the time of
+     * sale, and every repayment received in the window — which may be settling
+     * invoices from months before it. A repayment is scoped by the day it was
+     * received, so it lands in the period the cash actually arrived.
+     */
+    private function collected(ReportPeriod $period): Money
+    {
+        $atTheTill = $this->total(
+            $this->within(
+                Sale::query()->toBase()->where('status', SaleStatus::Proceed->value),
+                'sales.sold_on',
+                $period,
+            ),
+            'sales.amount_paid',
+        );
+
+        $repayments = $this->total(
+            $this->within(CustomerPayment::query()->toBase(), 'customer_payments.received_on', $period),
+            'customer_payments.amount',
+        );
+
+        return $atTheTill->plus($repayments);
+    }
+
+    /**
+     * What arrived purchases landed at: the goods, plus the freight and duty
      * invoiced with them. Both are money that has left the business.
      */
     private function purchases(ReportPeriod $period): Money
@@ -111,12 +160,12 @@ final class CashFlowQuery
         $goods = PurchaseLine::query()
             ->toBase()
             ->join('purchases', 'purchases.id', '=', 'purchase_lines.purchase_id')
-            ->where('purchases.status', PurchaseStatus::Posted->value);
+            ->whereIn('purchases.status', PurchaseStatus::inLedger());
 
         $additional = PurchaseAdditionalCost::query()
             ->toBase()
             ->join('purchases', 'purchases.id', '=', 'purchase_additional_costs.purchase_id')
-            ->where('purchases.status', PurchaseStatus::Posted->value);
+            ->whereIn('purchases.status', PurchaseStatus::inLedger());
 
         return $this->total(
             $this->within($goods, 'purchases.invoiced_on', $period),
@@ -153,6 +202,12 @@ final class CashFlowQuery
             ->whereDate($column, '<=', $to);
     }
 
+    /**
+     * `$expression` is literal by contract: every caller passes a class constant
+     * or a column name written out here, never anything from a request.
+     *
+     * @param  literal-string  $expression
+     */
     private function total(Builder $query, string $expression): Money
     {
         return Money::fromMinorUnits(

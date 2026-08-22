@@ -15,7 +15,9 @@ return new class extends Migration
      * and the cost is whatever the stock ledger recorded when it was posted —
      * both derived, so neither can drift away from what actually happened.
      *
-     * Draft until posted. Posting is what takes stock out, and it happens once.
+     * Runs ordered → on the way → proceed. Stock leaves at `on_the_way`: goods
+     * handed to a driver are off the shelf whatever happens next. Moving the
+     * status back down puts them back.
      */
     public function up(): void
     {
@@ -34,7 +36,10 @@ return new class extends Migration
             $table->string('payment_method');
 
             $table->text('notes')->nullable();
-            $table->timestamp('posted_at')->nullable();
+
+            // When the goods left the ledger. Null until they do, and null
+            // again if the sale is moved back to `ordered`.
+            $table->timestamp('committed_at')->nullable();
             $table->timestamps();
 
             $table->index(['status', 'sold_on']);

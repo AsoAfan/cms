@@ -1,7 +1,7 @@
 <?php
 
-use App\Actions\Purchasing\PostPurchaseAction;
-use App\Actions\Sales\PostSaleAction;
+use App\Actions\Purchasing\ReceivePurchaseAction;
+use App\Actions\Sales\IssueSaleAction;
 use App\Enums\CostAllocationMethod;
 use App\Enums\PaymentMethod;
 use App\Enums\PurchaseStatus;
@@ -11,7 +11,6 @@ use App\Models\ExpenseCategory;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\Sale;
-use App\Models\Supplier;
 use App\Queries\CashFlowQuery;
 use App\Support\Money;
 use App\Support\ReportPeriod;
@@ -42,26 +41,23 @@ use App\Support\ReportPeriod;
 */
 
 beforeEach(function () {
-    $this->northwind = Supplier::factory()->create(['name' => 'Northwind Textiles']);
-    $this->eastgate = Supplier::factory()->create(['name' => 'Eastgate Supply']);
-
     $this->blackout = Product::factory()->create(['name' => 'Blackout 117x137']);
     $this->sheer = Product::factory()->create(['name' => 'Sheer 168x183']);
     $this->velvet = Product::factory()->create(['name' => 'Velvet 117x229']);
 
-    postPurchase($this->northwind, '2026-01-05', [
+    arrivedPurchase('2026-01-05', [
         [$this->blackout, 10, '18.00'],
     ], [['Freight', '20.00', CostAllocationMethod::ByQuantity]]);
 
-    postPurchase($this->eastgate, '2026-01-20', [[$this->blackout, 10, '22.00']]);
-    postPurchase($this->eastgate, '2026-01-25', [[$this->velvet, 4, '15.00']]);
+    arrivedPurchase('2026-01-20', [[$this->blackout, 10, '22.00']]);
+    arrivedPurchase('2026-01-25', [[$this->velvet, 4, '15.00']]);
 
-    postPurchase($this->northwind, '2026-02-10', [
+    arrivedPurchase('2026-02-10', [
         [$this->sheer, 5, '30.00'],
     ], [['Duty', '10.00', CostAllocationMethod::ByValue]]);
 
-    postSale('2026-02-01', [[$this->blackout, 12, '44.00']]);
-    postSale('2026-02-15', [[$this->sheer, 3, '60.00', '10.00']]);
+    deliveredSale('2026-02-01', [[$this->blackout, 12, '44.00']]);
+    deliveredSale('2026-02-15', [[$this->sheer, 3, '60.00', '10.00']]);
 
     spend('Rent', '150.00', '2026-02-01');
     spend('Transport', '40.00', '2026-02-14');
@@ -75,11 +71,10 @@ beforeEach(function () {
  * @param  list<array{0: Product, 1: int, 2: string}>  $lines
  * @param  list<array{0: string, 1: string, 2: CostAllocationMethod}>  $costs
  */
-function postPurchase(Supplier $supplier, string $on, array $lines, array $costs = []): Purchase
+function arrivedPurchase(string $on, array $lines, array $costs = []): Purchase
 {
-    $purchase = Purchase::factory()->for($supplier)->create([
+    $purchase = Purchase::factory()->arrived()->create([
         'invoiced_on' => $on,
-        'status' => PurchaseStatus::Draft,
     ]);
 
     foreach ($lines as [$product, $quantity, $unitCost]) {
@@ -99,17 +94,16 @@ function postPurchase(Supplier $supplier, string $on, array $lines, array $costs
         ]);
     }
 
-    return app(PostPurchaseAction::class)->handle($purchase->refresh());
+    return app(ReceivePurchaseAction::class)->handle($purchase->refresh());
 }
 
 /**
  * @param  list<array{0: Product, 1: int, 2: string, 3?: string}>  $lines
  */
-function postSale(string $on, array $lines): Sale
+function deliveredSale(string $on, array $lines): Sale
 {
-    $sale = Sale::factory()->create([
+    $sale = Sale::factory()->delivered()->create([
         'sold_on' => $on,
-        'status' => SaleStatus::Draft,
         'payment_method' => PaymentMethod::Cash,
     ]);
 
@@ -122,7 +116,7 @@ function postSale(string $on, array $lines): Sale
         ]);
     }
 
-    return app(PostSaleAction::class)->handle($sale->refresh());
+    return app(IssueSaleAction::class)->handle($sale->refresh());
 }
 
 function spend(string $category, string $amount, string $on): Expense
@@ -193,8 +187,8 @@ it('takes a discount off what came in', function () {
 |--------------------------------------------------------------------------
 */
 
-it('leaves draft documents out of both sides', function () {
-    $sale = Sale::factory()->create(['sold_on' => '2026-02-20', 'status' => SaleStatus::Draft]);
+it('leaves documents whose goods have not moved out of both sides', function () {
+    $sale = Sale::factory()->create(['sold_on' => '2026-02-20', 'status' => SaleStatus::Ordered]);
     $sale->lines()->create([
         'product_id' => $this->blackout->id,
         'quantity' => 5,
@@ -202,9 +196,9 @@ it('leaves draft documents out of both sides', function () {
         'discount' => Money::zero(),
     ]);
 
-    $purchase = Purchase::factory()->for($this->eastgate)->create([
+    $purchase = Purchase::factory()->create([
         'invoiced_on' => '2026-02-20',
-        'status' => PurchaseStatus::Draft,
+        'status' => PurchaseStatus::OnTheWay,
     ]);
     $purchase->lines()->create([
         'product_id' => $this->velvet->id,

@@ -5,9 +5,28 @@ paths:
 
 # Actions
 
-## Quick buy/sell compose Save + Post in one transaction
-`QuickPurchaseAction` and `QuickSaleAction` back the Buy/Sell buttons on the catalogue. They are not a shortcut around the invoice: each writes a real single-line document through `Save*Action` and then posts it through `Post*Action`, so stock arrives and leaves by exactly the path a typed-up invoice takes and every report downstream sees an ordinary purchase or sale.
+## Quick buy/sell write a real document, at `ordered`
+`QuickPurchaseAction` and `QuickSaleAction` back the Buy/Sell buttons on the
+catalogue. Each writes a real single-line document through `Save*Action`, so
+everything downstream sees an ordinary purchase or sale.
 
-Both wrap save and post in **one** transaction. That is the whole point: when `PostSaleAction` refuses a short sale, the draft it would otherwise have left behind is rolled back too. A mystery draft nobody asked for is worse than the error.
+**Both land at `ordered`, and therefore move no stock.** They used to go
+straight in at `proceed` — buying was "something you have in your hand",
+selling was "the counter" — and that made the catalogue the one place where
+goods appeared and vanished without anybody confirming they had. The catalogue
+takes the order; the document's own screen moves it along, and that is what
+touches the ledger.
 
-Because posting is one-way, a quick trade is immutable the moment it succeeds — correcting one means a reversal document, which is not built. The dialogs pre-flight what they can (the sell dialog disables submit above on-hand) so the common mistake never reaches the ledger.
+- **A quick sale records nothing as paid** (`amount_paid` is `'0'`). Money
+  against goods still on the shelf is a deposit, and only the sale screen has
+  room to say one was taken. Booking it paid in full was the old counter
+  assumption and it made every quick sale read as settled before the customer
+  had anything.
+- Selling more than is on hand is allowed here: an order can be placed for
+  goods still coming in. It is refused when the sale is sent out, which is the
+  point where stock actually has to exist.
+- Because nothing is committed, neither dialog can fail on stock, and neither
+  leaves a half-written document behind.
+- Both controllers' flash messages say what was written **and** where the stock
+  moves ("Stock arrives when you mark it Proceed"). Keep that: an action that
+  quietly does less than it used to reads as a bug otherwise.

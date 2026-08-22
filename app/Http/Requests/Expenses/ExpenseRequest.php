@@ -4,6 +4,7 @@ namespace App\Http\Requests\Expenses;
 
 use App\Enums\PaymentMethod;
 use App\Http\Requests\Concerns\ConvertsToBaseCurrency;
+use App\Http\Requests\Concerns\NamesPayingBank;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -11,6 +12,7 @@ use Illuminate\Validation\Rule;
 class ExpenseRequest extends FormRequest
 {
     use ConvertsToBaseCurrency;
+    use NamesPayingBank;
 
     public function authorize(): bool
     {
@@ -32,6 +34,7 @@ class ExpenseRequest extends FormRequest
             'currency' => $currency,
             'spent_on' => ['required', 'date'],
             'payment_method' => ['required', Rule::enum(PaymentMethod::class)],
+            'bank_id' => $this->bankRules(),
             'notes' => ['nullable', 'string', 'max:2000'],
         ];
     }
@@ -45,6 +48,7 @@ class ExpenseRequest extends FormRequest
             'title.required' => 'Say what the money went on.',
             'amount.gt' => 'An expense has to be more than nothing.',
             'amount_currency.in' => 'There is no exchange rate on record for that currency.',
+            ...$this->bankMessages(),
         ];
     }
 
@@ -67,6 +71,7 @@ class ExpenseRequest extends FormRequest
             'amount' => $this->baseMoney('amount', '0'),
             'spent_on' => $this->date('spent_on')->toDateString(),
             'payment_method' => $this->string('payment_method')->toString(),
+            'bank_id' => $this->bankId(),
             'currency' => $this->documentCurrency(),
             'exchange_rate' => $this->documentRate(),
             'notes' => $this->filled('notes') ? $this->string('notes')->toString() : null,

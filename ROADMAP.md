@@ -23,10 +23,10 @@ against one.
 | Costing method | **FIFO via purchase batches** | The only way to derive exact COGS and inventory valuation from transactions |
 | Stock on hand | Derived from the `stock_movements` ledger | No stored balance that can drift; cache later only if proven slow |
 | "Never store calculated values" | Exception for **recorded historical facts** | A sale line's unit price and a batch's landed unit cost are *facts at transaction time*, not caches. Totals, profit, and stock levels stay derived. |
-| Counterparties | **Suppliers only** | Sales are over the counter, so there is no customer to name. Customers would arrive as their own table plus a nullable `customer_id` on sales — additive. |
+| Counterparties | ~~Suppliers only~~ → **customers are named on every sale; purchases name nobody** | Reversed at the user's direction, both ways. Selling on account needs a buyer to file the loan under, so `sales.customer_id` is required and counter trade goes to a seeded **Walk-in** customer. A purchase's supplier, meanwhile, was optional, had to be skipped explicitly on every invoice, and nothing downstream read it — so the column is gone. `suppliers` remains as a list, just not on the invoice. |
 | Catalogue depth | **Flat: a product is the stock-keeping entity.** No variants, options, categories, brands, units, `code` or `is_active` | Each was built and then removed as a layer to maintain without a matching gain. Goods that differ are separate products with separate **names**, and the name carries the unique index. All are additive to bring back. |
 | Multi-warehouse | **Not built, and no placeholder columns** | The ledger was to carry a nullable `location_id` against a `locations` table that does not exist. An unused column is the same speculative layer units and variants turned out to be; adding one later is a single additive migration where NULL means "the one location". |
-| Multi-currency | ~~Not built~~ → **Base IQD, entry in any currency, conversion once on the way in** | Reopened in Phase 10, and the only Guiding Decision so far reversed by the business rather than by the build. This trade is mostly in dinars and sometimes in dollars, so "one currency" was never true of the money — only of the storage. The reversal cost no schema churn precisely because storage stays single-currency: every amount is still base-currency minor units, and the ledger, the FIFO costing and all seven report queries were untouched. |
+| Multi-currency | ~~Not built~~ → **Currencies are rows, one is the base, conversion happens once on the way in** | Reopened in Phase 10 at the user's direction. This trade is mostly in dinars and sometimes in dollars, so "one currency" was never true of the money — only of the storage, which is what it remains: every amount is still base-currency minor units, and the ledger, the FIFO costing and every report query were untouched. Which currencies exist and which is the base are managed on a screen; **the base is fixed once money is recorded**, because no single rate could restate history. |
 | Returns | Scaffolding only in this scope | The requirements list returns as "future-ready", not required. P5.T8 lands the schema hooks so adding them later is additive, never a migration of posted data. |
 | Rounding remainders | Largest-remainder allocation, residual to the last line by `id` | Splitting $100 across 3 units gives 3333/3333/3334. A fixed, deterministic rule guarantees allocated costs sum **exactly** to the invoice total, so reconciliation never drifts by a cent. Applies to landed costs and invoice-level discounts alike. |
 
@@ -65,7 +65,7 @@ against one.
 - [x] **P1.T5** — Pricing: ~~`default_cost_price` / `default_selling_price` as *defaults only*, null meaning "not priced yet"~~ → **`cost_price` / `selling_price`, both required** (P10). Transactions still record their own prices, so editing either never rewrites history. "Not priced yet" as a storable state bought a null to handle on every screen, every prefill and every report, for a case that helped nobody.
 - [x] **P1.T6** — n/a — no reference data left to manage.
 - [x] **P1.T7** — Product CRUD: one form, six fields.
-- [x] **P1.T8** — Product list: search across name and description, sortable prices and **quantity on hand**, pagination, and per-row Buy/Sell. ~~status filter~~ — removed with `is_active`.
+- [x] **P1.T8** — Product list: search across name and description, sortable prices and **quantity on hand**, pagination, and per-row Buy/Sell — each writing a real document **at `ordered`**, so the catalogue takes the order and the document's own screen moves the stock. ~~status filter~~ — removed with `is_active`.
 - [x] **P1.T9** — Feature tests for product CRUD, pricing precision, name uniqueness, ledger-derived quantity and its sort.
 
 **Done when:** ~~you can create a product with 3 items across 2 options and find it by code~~ →
@@ -156,13 +156,13 @@ on-hand of 5 @ $7. ✅ — pinned by the first test in `InventoryServiceTest`.
 
 ## Phase 4 — Purchasing
 
-- [x] **P4.T1** — `purchases` (optional supplier, number, invoice date, status, notes). No stored total — it is the sum of its parts.
+- [x] **P4.T1** — `purchases` (~~optional supplier~~ — removed, number, invoice date, status, notes). No stored total — it is the sum of its parts.
 - [x] **P4.T2** — `purchase_lines` (product, qty, unit cost, discount). The discount is an absolute amount, not a percentage: a percentage needs rounding to become money, and the amount is what the invoice actually says.
 - [x] **P4.T3** — `purchase_additional_costs` (freight, duty) + `CostAllocationMethod` (by value / by quantity).
-- [x] **P4.T4** — `PostPurchaseAction`: spread the invoice-wide costs, receive each line at its landed total, all inside one transaction. `assertReconciles()` throws if the allocation ever fails to equal the invoice to the penny.
-- [x] **P4.T5** — Draft → Posted, one-way. Posted purchases refuse edit and delete at both the action and the controller.
+- [x] **P4.T4** — ~~`PostPurchaseAction`~~ → **`ReceivePurchaseAction`**: spread the invoice-wide costs, receive each line at its landed total, all inside one transaction. `assertReconciles()` throws if the allocation ever fails to equal the invoice to the penny.
+- [x] **P4.T5** — ~~Draft → Posted, one-way; posted purchases refuse edit and delete~~ → **ordered → on the way → proceed, and the status moves both ways.** Reaching `proceed` receives the goods, leaving it puts them back, and an edit re-runs both. What is refused is touching an invoice whose goods have already been sold on.
 - [x] **P4.T6** — Purchase entry form: line table, product select, Enter on the last line adds another, live goods/freight/total.
-- [x] **P4.T7** — Purchase list + posted detail showing each line's landed total and the batches it put on the shelf.
+- [x] **P4.T7** — Purchase list with the invoice written in a **drawer over it**, and an invoice screen that reads like the piece of paper. ~~Landed cost per line and the batches it made~~ — removed from the screen: that is the ledger's side, not the invoice's.
 - [x] **P4.T8** — 19 allocation tests plus 18 screen tests, including a table of awkward invoices asserting inventory rises by exactly the invoice total.
 
 **Done when:** posting a purchase raises stock and sets the correct landed unit cost per batch. ✅
@@ -174,23 +174,25 @@ on-hand of 5 @ $7. ✅ — pinned by the first test in `InventoryServiceTest`.
 > unique index on `received_movement_id` to allow it, and `InventoryService` gained
 > `receiveAtTotalCost()`.
 >
-> **Not built:** reversal of a posted purchase. Posting is one-way and posted invoices are
-> immutable, but there is no document yet to undo one. Worth adding before this handles
-> real money in anger.
+> **Reversal replaced the reversal document.** Moving an invoice back down the statuses
+> undoes exactly what it put in the ledger, rather than writing an offsetting document. It
+> is refused once a batch has been sold from, because that stock is somebody else's cost
+> now — `StockAlreadyConsumedException` says so instead of letting a batch vanish from
+> under a sale.
 
 ---
 
 ## Phase 5 — Sales
 
-- [x] **P5.T1** — `sales` (number, date, status, payment method). No customer — see Phase 2.
+- [x] **P5.T1** — `sales` (number, date, status, payment method, ~~no customer~~ → **required `customer_id`** and `amount_paid`, see Phase 11).
 - [x] **P5.T2** — `sale_lines` (product, qty, unit price, discount).
 - [x] **P5.T3** — ~~`payment_methods` table + `sale_payments`~~ → a `PaymentMethod` **enum** on the sale. A reference table meant another screen to manage; split and part payment are not needed yet and arrive additively.
-- [x] **P5.T4** — `PostSaleAction`: FIFO issue through `InventoryService`. Cost of sale is **derived** from the batch consumptions, never stored.
-- [x] **P5.T5** — Draft → Posted, one-way. Posted sales refuse edit and delete.
-- [x] **P5.T6** — Till-style entry: type a product name and press Enter (exact match wins over partial), the same one again adds one more, running total, on-hand warning per line.
-- [x] **P5.T7** — Sale list + invoice detail with per-line cost and profit.
+- [x] **P5.T4** — ~~`PostSaleAction`~~ → **`IssueSaleAction`**: FIFO issue through `InventoryService`, pre-flighting every line so all shortages are reported at once. Cost of sale is **derived** from the batch consumptions, never stored.
+- [x] **P5.T5** — ~~Draft → Posted, one-way; posted sales refuse edit and delete~~ → **ordered → on the way → proceed, and the status moves both ways.** Stock leaves at `on the way`, because goods handed to a driver are off the shelf whatever happens next. Editing a sale that has gone out reverts and re-issues in one transaction.
+- [x] **P5.T6** — ~~Till-style entry: type a product name and press Enter, the same one again adds one more~~ → **a product dropdown per line, as on a purchase**, each option carrying what is on the shelf. Enter on the last line still adds another, and the on-hand warning and running total stayed. Two ways to put a product on a document was one too many, and the one that reads back what you picked is the one that survived.
+- [x] **P5.T7** — Sale list with the sale rung up in a **drawer over it**, and an invoice screen that reads like the piece of paper. ~~Per-line cost and profit~~ → in the summary block instead, under one shared currency dropdown: the lines are what the customer bought, the summary is what the shop made.
 - [x] **P5.T8** — ~~Return-ready scaffolding (`parent_sale_id`, `SaleType`)~~ — **not built.** A nullable column with no UI is the same speculative layer `location_id` and units turned out to be; returns arrive additively.
-- [x] **P5.T9** — 23 tests: stock decrease, FIFO cost correctness, oversell rejection, all-or-nothing posting.
+- [x] **P5.T9** — 38 tests: stock decrease, FIFO cost correctness, oversell rejection, all-or-nothing issue, moving the status back and forth, and the screens.
 
 **Done when:** a sale takes stock out at the right cost and shows what it made. ✅
 
@@ -199,9 +201,11 @@ on-hand of 5 @ $7. ✅ — pinned by the first test in `InventoryServiceTest`.
 > gross profit of $72, with 7 left worth $140. The freight from the purchase is inside the
 > cost of the sale, which is the whole point of the landed-cost work in Phase 4.
 >
-> **Deferred, and worth knowing before this handles real money:** there is still no
-> reversal for a posted purchase or sale. Both are correctly immutable, but nothing yet
-> undoes a mistake — the only recourse is a stock adjustment.
+> ~~**Deferred:** there is still no reversal for a posted purchase or sale.~~ → **Settled:**
+> a mistake is undone by moving the document back down its statuses, or by editing it,
+> which reverts and re-applies the ledger in one transaction. Neither is possible once
+> another document has consumed the stock, which is the one case a correcting document
+> would still be needed for.
 
 ---
 
@@ -319,24 +323,24 @@ paper first.
 
 ## Phase 10 — Currency
 
-**Goal:** trade in dinars and dollars, and report in dinars, without any figure below the
-form ever learning that a second currency exists.
+**Goal:** trade in whatever currencies the business handles, keep the books in one of them,
+and never let a figure below the form learn that a second currency exists.
 
-- [x] **P10.T1** — Base currency **IQD**. `config/money.php` gains a `currencies` map with each
-      one's symbol and `fraction_digits` — a display setting, not a storage one. Storage stays
-      two decimal places for every currency, so `Money::allocate()` keeps landed costs exact and
-      all 62 `MoneyTest` cases still hold. Dinars simply show none.
+- [x] **P10.T1** — `currencies` table: code, name, symbol, `fraction_digits`, `is_base`.
+      Which currencies matter is a fact about a business, not a deployment, so they are rows.
+      `fraction_digits` is display only — storage stays two decimal places for every currency,
+      so `Money::allocate()` keeps landed costs exact and all 62 `MoneyTest` cases still hold.
+      Dinars simply show none.
 - [x] **P10.T2** — `App\Support\ExchangeRates`: framework-free, immutable, and the only thing
       that converts. A rate is base-major per foreign-major as a fixed-point integer scaled by
       10⁶, so $18.50 at 1,320.5 is exactly 24,429.25 dinars — one multiply, one divide, no float.
       38 unit tests.
 - [x] **P10.T3** — `exchange_rates` + `CurrencyService`: the newest rate **on or before** a date,
-      so a missed sync carries yesterday's figure forward and a back-dated invoice costs at the
-      rate of its own day.
-- [x] **P10.T4** — `SyncExchangeRatesAction` + `php artisan currency:sync`, scheduled daily.
-      Free, no-key feed (`open.er-api.com`, which publishes IQD where the ECB's does not),
-      re-based from the feed's own base to ours. All-or-nothing; a failure leaves every existing
-      rate untouched.
+      so a rate stands until a newer one is recorded and a back-dated invoice costs at the rate
+      of its own day. FK to `currencies.code`, cascading, so a removed currency takes its quotes
+      with it.
+- [x] **P10.T4** — Settings → Currencies: add a currency, mark one as the default, remove one,
+      and record what each is worth. **Entered by hand — nothing fetches a rate.**
 - [x] **P10.T5** — `ConvertsToBaseCurrency` on every money-taking Form Request. **The one rule
       the whole phase rests on: conversion happens once, here.**
 - [x] **P10.T6** — `currency` + `exchange_rate` on `purchases`, `sales` and `expenses` — what
@@ -346,38 +350,125 @@ form ever learning that a second currency exists.
 - [x] **P10.T8** — Topbar switcher to read the whole app in another currency, labelled with the
       rate. Display only; storage never moves.
 - [x] **P10.T9** — Product prices required and renamed (see P1.T5).
-- [x] **P10.T10** — 75 new tests: 38 on the value object, 17 on entry, 12 on sync, plus two arch
-      tests.
+- [x] **P10.T10** — 90 currency tests: 38 on the value object, 17 on entry, 18 on currency
+      management, 12 on the rates screen, plus two arch tests.
 
 **Done when:** an invoice typed in dollars stores dinars, and the reports do not change shape. ✅
 
 > **What made this cheap.** Storage stays single-currency. Because every amount reaches the
-> database already in dinars, `InventoryService`, all seven `App\Queries\*`, `PostPurchaseAction`,
-> `PostSaleAction` and `App\Support\Csv` needed **no changes at all** — the FIFO ledger and every
-> report are as currency-blind as they were before. Two arch tests keep it that way: reports and
-> the ledger may not touch `ExchangeRates` or `CurrencyService`, and `CurrencyService` may not
-> touch the Http facade.
+> database already in base-currency minor units, `InventoryService`, every `App\Queries\*`, the
+> receive/issue actions and `App\Support\Csv` needed **no changes at all** — the FIFO ledger and
+> every report are as currency-blind as they were before. Two arch tests keep it that way:
+> reports and the ledger may not touch `ExchangeRates` or `CurrencyService`, and nothing may
+> fetch a rate over the network.
 >
-> **Built, then removed at the user's direction: a rates screen.** It let someone record the rate
-> they actually trade at, outranking the published one, with a `source` column to tell the two
-> apart. It is gone, and the reasoning is worth keeping: a rate is a fact about the market, not a
-> preference, and a form for typing one in is a form for typing a wrong one that then costs every
-> invoice behind it. `RateSource`, the `source` column, the controller, the request and the screen
-> all went with it. Ask before bringing any of it back.
+> **The rate source changed twice, and the second answer is the settled one.** A manual rates
+> screen was built, replaced by a scheduled `currency:sync` against a free feed, then the feed
+> was removed and the screen restored — all at the user's direction. The reason it stuck:
+> the official rate and the rate this business actually trades at are rarely the same number,
+> and it is the second one that costs an invoice correctly. `SyncExchangeRatesAction`, the
+> command, the schedule, `RateSource` and the `source` column are all gone. Ask before adding
+> a feed back.
+>
+> **Moving the base is refused once there is money on record.** Every stored amount is minor
+> units of the base and each was recorded at a rate current when it happened, so no single rate
+> could restate the history — converting at today's would quietly rewrite what past invoices
+> cost. While the books are empty it moves freely, and it deletes every rate on the way, because
+> those quoted the old base. If re-denominating a live set of books is ever wanted, that is a
+> conversion run with its own audit trail, not a setting.
 >
 > **Deviations worth knowing:**
 >
-> - **One `exchange_rate` per document.** Complete for two currencies — an amount is either base
->   or the other one. A third would have to move the rate down to the individual amount.
+> - **One `exchange_rate` per document.** An amount on it is either base or the document's own
+>   currency, and one rate covers both. A genuinely mixed-currency invoice — three currencies on
+>   one document — would have to move the rate down to the individual amount.
 > - **The dropdown converts, it does not relabel.** $18.50 switched to dinars becomes 24,420.
 >   The alternative silently turns eighteen dollars into eighteen dinars.
-> - **Seeding fetches a live rate**, falling back to a dated opening figure when there is no
->   network, so a fresh install can price something immediately and the test suite runs offline.
+> - **`CurrencyService` is a singleton**, because a purchase form posts a dozen amounts on one
+>   date and each would otherwise repeat the same lookups.
 >
 > **Two real bugs the tests caught**, both the `Y-m-d 00:00:00` date-storage trap already
 > recorded in `.ai/rules/queries.md`: `max('effective_on')` hands back a datetime string that
 > `whereDate` can never match, and `updateOrCreate` keyed on a date silently misses and inserts
 > a duplicate until the unique index refuses it.
+
+---
+
+## Phase 11 — Customers & Credit
+
+**Goal:** a sale belongs to somebody, and somebody can owe you for it.
+
+This reverses the **Counterparties** Guiding Decision at the user's direction. It cost no
+migration of posted documents, exactly as that decision predicted: customers arrive as
+their own table plus columns on `sales`.
+
+- [x] **P11.T1** — `customers` migration + model + factory + seeder. The mirror of
+      `suppliers`: only the name is required, and the name is **unique** because a customer
+      has to be pickable on the sale screen and recognisable at the top of a statement. A
+      seeded **Walk-in** customer carries counter trade.
+- [x] **P11.T2** — `sales.customer_id`, **required**. Every sale names a buyer; the form
+      opens on Walk-in, so the requirement costs no keystrokes. `restrictOnDelete`, and
+      `CustomerController::destroy` says so rather than letting the key 500. Existing rows
+      were attributed to Walk-in by the migration, and their `amount_paid` backfilled from
+      their own lines — they were paid at the till.
+- [x] **P11.T3** — `sales.amount_paid`: what was handed over at the time, a recorded fact
+      like a line's `unit_price`. Paid in full / part paid / on account all fall out of one
+      column. **"Paid in full" is settled from the lines on the server**, so the stored
+      figure is the invoice exactly and the client never converts a total.
+- [x] **P11.T4** — `customer_payments` + `customer_payment_allocations`. A payment is applied
+      to **named invoices**, so "what is left on SAL-00031" is a fact rather than an
+      inference. One payment can clear several invoices; one invoice can take several
+      payments.
+- [x] **P11.T5** — `RecordCustomerPaymentAction`, holding the three invariants a column
+      cannot: allocations sum to exactly the payment, no invoice takes more than it owes,
+      and only delivered invoices can be paid. No update action — a payment is either what
+      came in or it is not, so a wrong one is deleted (which unwinds its allocations) and
+      recorded again.
+- [x] **P11.T6** — `CustomerBalanceQuery`: the only place a debt is worked out. No balance
+      column anywhere.
+- [x] **P11.T7** — Customer CRUD, plus a **statement screen** (`show`, which suppliers do not
+      have): what they bought, what they paid, what is left on each invoice. Payments are
+      recorded from there, because that is the only screen showing what is owed on what.
+- [x] **P11.T8** — Payment dialog that fills the **oldest invoices first** the moment an
+      amount is typed, with every row still editable, and the shortfall on screen before the
+      button rather than in an error after it.
+- [x] **P11.T9** — Reporting gains a second income figure. `income` is what was sold;
+      `collected` is what came through the door. Plus **Owed to you** on the report and the
+      dashboard — a position, not a flow, which is why it sits outside the period query.
+- [x] **P11.T10** — 50 tests: balance derivation, allocation invariants, overpayment refusal,
+      deletion putting a debt back, the two income figures diverging, and two arch tests
+      keeping repayments out of the stock ledger.
+
+**Done when:** a customer can take goods without paying, and you can see what they owe and
+take money off it. ✅
+
+> **When a debt begins: delivery, not dispatch.** A sale counts as income and as a debt at
+> `proceed`, when the goods are the customer's. Stock still leaves one status earlier, at
+> `on_the_way` — goods with a driver are off the shelf but not yet sold. That is the one
+> place the ledger and the money view deliberately part company, and both halves say so.
+> Money against an order not yet delivered is a **deposit**: it sits on the sale as
+> `amount_paid` and owes nobody anything until delivery.
+>
+> **Two income figures, on purpose.** A sale on account is income the day it is delivered and
+> cash on the day it is paid, which may be months later. Net is still measured on income, so
+> a shop that sells well on credit does not read as a shop that is failing. This is the first
+> figure added to the report since it was cut back at P7.T14, and it earns its place: on
+> credit terms "what did I sell" and "what did I take" are two different questions.
+>
+> **Not built, deliberately** — ask before adding any of these:
+>
+> - **No credit limit and no ageing.** A balance and an invoice list answer "who owes me
+>   what"; a limit is a policy nobody has stated, and 30/60/90 buckets are a report nobody
+>   has asked for. Both are additive over what is here.
+> - **No customer statement export or printing.** The screen is the statement.
+> - **No editing a payment.** See P11.T5.
+> - **Nothing on the supplier side.** Money you owe suppliers is a different table and a
+>   different screen; `purchases` has no `amount_paid`.
+>
+> **Interaction to watch:** reverting a delivered sale back to `ordered` while payments are
+> allocated to it would leave money against an invoice that owes nothing, and the customer's
+> balance would silently drop. The revert path is being built alongside this (see the order
+> status work) and should refuse a sale with payments against it.
 
 ---
 

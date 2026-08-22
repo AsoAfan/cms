@@ -3,14 +3,8 @@ import { Download } from 'lucide-react';
 
 import { DateRangePicker } from '@/components/date-range-picker';
 import type { DateRange } from '@/components/date-range-picker';
+import { OptionSelect } from '@/components/option-select';
 import { Button } from '@/components/ui/button';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import reports from '@/routes/reports';
 import type { ReportPeriod, ReportPresetOption } from '@/types/reports';
 
@@ -85,27 +79,19 @@ export function ReportPeriodFilter({
 
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <Select
+            <OptionSelect
+                className="w-40"
+                aria-label="Reporting period"
                 value={period.preset ?? CUSTOM}
-                onValueChange={(value) =>
-                    String(value) !== CUSTOM && visit({ preset: String(value) })
+                options={[
+                    ...presets,
+                    /* Only reachable by picking dates, never by choosing it. */
+                    { value: CUSTOM, label: 'Custom range', disabled: true },
+                ]}
+                onChange={(value) =>
+                    value !== CUSTOM && visit({ preset: value })
                 }
-            >
-                <SelectTrigger className="w-40" aria-label="Reporting period">
-                    <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                    {presets.map((preset) => (
-                        <SelectItem key={preset.value} value={preset.value}>
-                            {preset.label}
-                        </SelectItem>
-                    ))}
-                    {/* Only reachable by picking dates, never by choosing it. */}
-                    <SelectItem value={CUSTOM} disabled>
-                        Custom range
-                    </SelectItem>
-                </SelectContent>
-            </Select>
+            />
 
             <DateRangePicker
                 value={range}

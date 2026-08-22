@@ -33,13 +33,21 @@ Stock therefore moves **only** through purchases and sales. `InventoryService::a
 
 Consequence to remember: there is no way to record an opening balance, damage or a miscount. Opening stock is entered as a purchase, which is also what values it correctly.
 
-## Exchange rates come from the feed, never from a user
-`exchange_rates` is written only by `SyncExchangeRatesAction` (`php artisan currency:sync`, scheduled daily in routes/console.php). There is deliberately NO screen for typing a rate in and no `source` column — one was built and removed at the user's direction. A rate is a fact about the market, not a preference, and a form for entering one is a form for entering a wrong one that then costs every invoice behind it. Ask before adding one back.
+## Currencies are rows, and rates are typed in — nothing fetches them
+Currencies live in `currencies`, not in config. `config('money.currency')` is only the code the seeder opens the books in and the fallback `CurrencyService::base()` uses before the first row exists; `config('money.seed_currencies')` is read once by `CurrencySeeder` and never again. Manage them on Settings → Currencies.
 
-Nothing calls the feed during a page request: screens read the table, so the app keeps working when the feed is down. An arch test asserts CurrencyService never touches the Http facade.
+**A published feed was built and removed at the user's direction.** There is no `currency:sync`, no schedule, no `source` column, and nothing anywhere calls the network for a rate — an arch test pins that. The official rate and the rate a business actually trades at are rarely the same number, and it is the second one that costs an invoice correctly. Ask before adding a feed back.
+
+Exactly one currency is `is_base`, and every monetary column in the application is minor units of it.
+
+- **Moving the base is refused once there is money on record** (`CurrencyService::makeBase()` → `CurrencyInUseException`). Each stored amount was recorded at a rate current when it happened, so no single rate could restate the history; converting at today's would quietly rewrite what past invoices cost. Moving it does succeed while the books are empty, and it deletes every rate, because those quoted the old base.
+- A currency cannot be removed while it is the base or named on a purchase, sale or expense. Removing one cascades its rates away (FK on `exchange_rates.currency`).
+- `enterable()` lists only the base plus currencies with a rate on record, so a currency you have added but not priced cannot be typed into a money field yet.
 
 A rate is base major units per one foreign major unit, scaled by `ExchangeRates::SCALE` (10^6) — 1320.50 IQD/USD is 1_320_500_000. Conversion itself lives in the framework-free `App\Support\ExchangeRates`, so it is unit-testable with no database.
 
-Lookups take the newest rate ON OR BEFORE the date, so a missed sync carries yesterday's figure forward.
+Lookups take the newest rate ON OR BEFORE the date, so a rate stands until a newer one is recorded and a back-dated document costs at its own day's rate.
+
+`CurrencyService` is a **singleton** (`AppServiceProvider`) so its memoised currencies and rates last the request — a purchase form posts a dozen amounts on one date. Every write calls `forget()`.
 
 TRAP: `effective_on` stores `Y-m-d 00:00:00`, so `max('effective_on')` returns a datetime string and `updateOrCreate` on it never matches a `Y-m-d`. Always `whereDate()` — see `record()` and `latestRowOn()`.

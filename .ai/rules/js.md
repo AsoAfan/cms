@@ -25,3 +25,10 @@ The `currency` prop carries `base`, `display`, `locale` and the currencies on of
 - `useRestate(value, from, to)` is the "same money, said differently" conversion behind the dropdown.
 
 This project uses Base UI, not Radix: compose with `render={<Component />}`, not `asChild`. Forms use `FieldGroup`/`Field`, and toasts come from `@/components/ui/toast`, not sonner.
+
+## Dropdowns go through OptionSelect, never raw Select
+Base UI's `<Select.Value>` prints the RAW value unless `<Select.Root>` is given `items` mapping values to labels — and it never corrects itself once the popup has been opened, because the fallback is the stringified value, not the item's text. Every dropdown in the app showed ids and enum keys ("1" for a customer, "on_the_way" for a status) until this was fixed.
+
+Build dropdowns with `<OptionSelect value options onChange placeholder />` (`components/option-select.tsx`). It takes `{value, label, disabled?}[]`, feeds the same array to `items` and to the popup, and forwards the rest of its props to the trigger, so `{...control}` from `FormField`, `className` and `aria-label` all still work. The server's option props (`statuses`, `paymentMethods`, `allocationMethods`, `presets`) can be passed straight through.
+
+Compose the `ui/select` primitives directly ONLY where an item needs richer markup than a label — `MoneyInput` and `MoneyDisplay`'s currency pickers, whose trigger deliberately shows the bare code. Anywhere else, passing `items` by hand duplicates the labels and lets the two lists drift.

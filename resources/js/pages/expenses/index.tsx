@@ -2,6 +2,7 @@ import { Head, useForm, router } from '@inertiajs/react';
 import { Pencil, Plus, Tags, Trash2, Wallet, X } from 'lucide-react';
 import { useState } from 'react';
 
+import { BankField, bankAfterMethodChange } from '@/components/bank-field';
 import { DataTable } from '@/components/data-table';
 import type { Column } from '@/components/data-table';
 import { DateRangePicker } from '@/components/date-range-picker';
@@ -10,6 +11,7 @@ import { EmptyState } from '@/components/empty-state';
 import { FormField } from '@/components/form-field';
 import { MoneyDisplay } from '@/components/money-display';
 import { MoneyInput } from '@/components/money-input';
+import { OptionSelect } from '@/components/option-select';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,13 +25,6 @@ import {
 } from '@/components/ui/dialog';
 import { FieldGroup } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useCurrency } from '@/hooks/use-currency';
 import AppLayout from '@/layouts/app-layout';
@@ -37,6 +32,8 @@ import { toDecimalString } from '@/lib/money';
 import expenseCategories from '@/routes/expense-categories';
 import { destroy, store, update } from '@/routes/expenses';
 import type { BreadcrumbItem, Paginated, TableState } from '@/types';
+import type { BankOption } from '@/types/banks';
+import { NO_BANK } from '@/types/banks';
 import type {
     ExpenseCategoryRow,
     ExpenseRow,
@@ -57,6 +54,8 @@ type ExpenseForm = {
     currency: string;
     spent_on: string;
     payment_method: string;
+    /** Which account it went out of. Empty on cash — a select cannot hold null. */
+    bank_id: string;
     notes: string;
 };
 
@@ -69,12 +68,14 @@ export default function ExpensesIndex({
     table,
     categories,
     paymentMethods,
+    banks,
     filteredTotal,
 }: {
     rows: Paginated<ExpenseRow>;
     table: TableState;
     categories: ExpenseCategoryRow[];
     paymentMethods: PaymentMethodOption[];
+    banks: BankOption[];
     filteredTotal: number;
 }) {
     const { base } = useCurrency();
@@ -90,6 +91,7 @@ export default function ExpensesIndex({
         currency: base,
         spent_on: today(),
         payment_method: paymentMethods[0]?.value ?? 'cash',
+        bank_id: NO_BANK,
         notes: '',
     });
 
@@ -117,13 +119,14 @@ export default function ExpensesIndex({
 
     function openCreate() {
         form.setData({
-            expense_category_id: String(categories[0]?.id ?? ''),
+            expense_category_id: String(categories[0]?.name ?? ''),
             title: '',
             amount: '',
             amount_currency: base,
             currency: base,
             spent_on: today(),
             payment_method: paymentMethods[0]?.value ?? 'cash',
+            bank_id: NO_BANK,
             notes: '',
         });
         form.clearErrors();
@@ -142,6 +145,7 @@ export default function ExpensesIndex({
             currency: base,
             spent_on: row.spent_on,
             payment_method: row.payment_method,
+            bank_id: row.bank_id === null ? NO_BANK : String(row.bank_id),
             notes: row.notes ?? '',
         });
         form.clearErrors();
@@ -195,6 +199,7 @@ export default function ExpensesIndex({
             cell: (row) => (
                 <span className="text-muted-foreground">
                     {row.payment_method_label}
+                    {row.bank && ` · ${row.bank}`}
                 </span>
             ),
         },
@@ -292,40 +297,50 @@ export default function ExpensesIndex({
                             }
                         />
 
-                        <Select
+                        <OptionSelect
+                            className="w-44"
+                            aria-label="Filter by category"
                             value={table.filters.expense_category_id ?? ANY}
-                            onValueChange={(value) =>
+                            options={[
+                                { value: ANY, label: 'All categories' },
+                                ...categories.map((category) => ({
+                                    value: String(category.id),
+                                    label: category.name,
+                                })),
+                            ]}
+                            onChange={(value) =>
                                 visit({
                                     expense_category_id:
-                                        String(value) === ANY
-                                            ? null
-                                            : String(value),
+                                        value === ANY ? null : value,
                                 })
                             }
-                        >
-                            <SelectTrigger
+                            placeholder="Category"
+                        />
+
+                        {banks.length > 0 && (
+                            <OptionSelect
                                 className="w-44"
-                                aria-label="Filter by category"
-                            >
-                                <SelectValue placeholder="Category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value={ANY}>
-                                    All categories
-                                </SelectItem>
-                                {categories.map((category) => (
-                                    <SelectItem
-                                        key={category.id}
-                                        value={String(category.id)}
-                                    >
-                                        {category.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                                aria-label="Filter by bank"
+                                value={table.filters.bank_id ?? ANY}
+                                options={[
+                                    { value: ANY, label: 'All banks' },
+                                    ...banks.map((bank) => ({
+                                        value: String(bank.id),
+                                        label: bank.name,
+                                    })),
+                                ]}
+                                onChange={(value) =>
+                                    visit({
+                                        bank_id: value === ANY ? null : value,
+                                    })
+                                }
+                                placeholder="Bank"
+                            />
+                        )}
 
                         {(table.filters.from ||
-                            table.filters.expense_category_id) && (
+                            table.filters.expense_category_id ||
+                            table.filters.bank_id) && (
                             <Button
                                 variant="ghost"
                                 size="sm"
@@ -334,6 +349,7 @@ export default function ExpensesIndex({
                                         from: null,
                                         to: null,
                                         expense_category_id: null,
+                                        bank_id: null,
                                     })
                                 }
                             >
@@ -444,32 +460,22 @@ export default function ExpensesIndex({
                                 error={form.errors.expense_category_id}
                             >
                                 {(control) => (
-                                    <Select
+                                    <OptionSelect
+                                        {...control}
+                                        className="w-full"
                                         value={form.data.expense_category_id}
-                                        onValueChange={(value) =>
+                                        options={categories.map((category) => ({
+                                            value: String(category.id),
+                                            label: category.name,
+                                        }))}
+                                        onChange={(value) =>
                                             form.setData(
                                                 'expense_category_id',
-                                                String(value),
+                                                value,
                                             )
                                         }
-                                    >
-                                        <SelectTrigger
-                                            {...control}
-                                            className="w-full"
-                                        >
-                                            <SelectValue placeholder="Choose a category" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {categories.map((category) => (
-                                                <SelectItem
-                                                    key={category.id}
-                                                    value={String(category.id)}
-                                                >
-                                                    {category.name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                        placeholder="Choose a category"
+                                    />
                                 )}
                             </FormField>
 
@@ -478,34 +484,36 @@ export default function ExpensesIndex({
                                 error={form.errors.payment_method}
                             >
                                 {(control) => (
-                                    <Select
+                                    <OptionSelect
+                                        {...control}
+                                        className="w-full"
                                         value={form.data.payment_method}
-                                        onValueChange={(value) =>
-                                            form.setData(
-                                                'payment_method',
-                                                String(value),
-                                            )
-                                        }
-                                    >
-                                        <SelectTrigger
-                                            {...control}
-                                            className="w-full"
-                                        >
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {paymentMethods.map((method) => (
-                                                <SelectItem
-                                                    key={method.value}
-                                                    value={method.value}
-                                                >
-                                                    {method.label}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                        options={paymentMethods}
+                                        onChange={(value) => {
+                                            form.setData((data) => ({
+                                                ...data,
+                                                payment_method: value,
+                                                bank_id: bankAfterMethodChange(
+                                                    paymentMethods,
+                                                    value,
+                                                    data.bank_id,
+                                                ),
+                                            }));
+                                        }}
+                                    />
                                 )}
                             </FormField>
+
+                            <BankField
+                                banks={banks}
+                                methods={paymentMethods}
+                                method={form.data.payment_method}
+                                value={form.data.bank_id}
+                                error={form.errors.bank_id}
+                                onChange={(value) =>
+                                    form.setData('bank_id', value)
+                                }
+                            />
 
                             <FormField label="Notes" error={form.errors.notes}>
                                 {(control) => (

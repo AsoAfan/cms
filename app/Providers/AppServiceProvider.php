@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Services\CurrencyService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -15,7 +16,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // A singleton so its memoised currencies and rates last the request.
+        // A purchase form posts a dozen amounts on one date, and every one of
+        // them would otherwise repeat the same lookups.
+        $this->app->singleton(CurrencyService::class);
     }
 
     /**

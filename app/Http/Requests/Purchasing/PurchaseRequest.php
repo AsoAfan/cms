@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Purchasing;
 
 use App\Enums\CostAllocationMethod;
+use App\Enums\PurchaseStatus;
 use App\Http\Requests\Concerns\ConvertsToBaseCurrency;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -25,10 +26,12 @@ class PurchaseRequest extends FormRequest
         $currency = ['nullable', Rule::in($this->enterableCurrencies())];
 
         return [
-            // Optional: an invoice is the goods, the money and the date. Who it
-            // came from is filing, and filing must not block recording.
-            'supplier_id' => ['nullable', 'integer', Rule::exists('suppliers', 'id')],
             'invoiced_on' => ['required', 'date'],
+
+            // Where the order stands. Set on the way in rather than only by the
+            // buttons on the invoice, so goods already in your hand are one
+            // save away from being stock.
+            'status' => ['required', Rule::enum(PurchaseStatus::class)],
             'notes' => ['nullable', 'string', 'max:2000'],
 
             // What the invoice was written in. Every amount below defaults to it
@@ -77,13 +80,13 @@ class PurchaseRequest extends FormRequest
     /**
      * Named `invoiceHeader` to avoid colliding with Request::header().
      *
-     * @return array{supplier_id: int|null, invoiced_on: string, notes: string|null, currency: string, exchange_rate: int}
+     * @return array{invoiced_on: string, status: PurchaseStatus, notes: string|null, currency: string, exchange_rate: int}
      */
     public function invoiceHeader(): array
     {
         return [
-            'supplier_id' => $this->filled('supplier_id') ? $this->integer('supplier_id') : null,
             'invoiced_on' => $this->date('invoiced_on')->toDateString(),
+            'status' => $this->enum('status', PurchaseStatus::class) ?? PurchaseStatus::Ordered,
             'notes' => $this->filled('notes') ? $this->string('notes')->toString() : null,
             'currency' => $this->documentCurrency(),
             'exchange_rate' => $this->documentRate(),

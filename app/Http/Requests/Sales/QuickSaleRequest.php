@@ -4,6 +4,7 @@ namespace App\Http\Requests\Sales;
 
 use App\Enums\PaymentMethod;
 use App\Http\Requests\Concerns\ConvertsToBaseCurrency;
+use App\Http\Requests\Concerns\NamesPayingBank;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -11,6 +12,7 @@ use Illuminate\Validation\Rule;
 class QuickSaleRequest extends FormRequest
 {
     use ConvertsToBaseCurrency;
+    use NamesPayingBank;
 
     public function authorize(): bool
     {
@@ -30,7 +32,18 @@ class QuickSaleRequest extends FormRequest
             'unit_price_currency' => $currency,
             'currency' => $currency,
             'payment_method' => ['required', Rule::enum(PaymentMethod::class)],
+            'bank_id' => $this->bankRules(),
             'sold_on' => ['required', 'date'],
+
+            // Optional here alone: leaving it off means counter trade, which the
+            // action files under the walk-in customer. The full sale screen
+            // requires a buyer because it has room to ask for one.
+            'customer_id' => ['nullable', 'integer', Rule::exists('customers', 'id')],
+
+            // Blank means paid in full — over the counter the goods and the money
+            // change hands together. Anything less is a loan from the off.
+            'amount_paid' => ['nullable', 'numeric', 'min:0', 'decimal:0,2'],
+            'amount_paid_currency' => $currency,
         ];
     }
 
@@ -42,6 +55,7 @@ class QuickSaleRequest extends FormRequest
         return [
             'unit_price.decimal' => 'Use at most two decimal places.',
             'unit_price_currency.in' => 'There is no exchange rate on record for that currency.',
+            ...$this->bankMessages(),
         ];
     }
 
@@ -53,6 +67,22 @@ class QuickSaleRequest extends FormRequest
     public function quantity(): int
     {
         return $this->integer('quantity');
+    }
+
+    /**
+     * Who bought it, or null for counter trade.
+     */
+    public function customerId(): ?int
+    {
+        return $this->filled('customer_id') ? $this->integer('customer_id') : null;
+    }
+
+    /**
+     * What they handed over, in the base currency — or null for paid in full.
+     */
+    public function amountPaid(): ?string
+    {
+        return $this->filled('amount_paid') ? (string) $this->baseMoney('amount_paid', '0') : null;
     }
 
     /**

@@ -37,7 +37,6 @@ export default function AuthLayout({
             <Link href={home()} className="flex items-center gap-2 font-medium">
                 <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                     <BadgeDollarSign className="size-4" />
-
                 </div>
                 {name}
             </Link>

@@ -1,8 +1,10 @@
 import { useForm } from '@inertiajs/react';
 
+import { BankField, bankAfterMethodChange } from '@/components/bank-field';
 import { FormField } from '@/components/form-field';
 import { MoneyDisplay } from '@/components/money-display';
 import { MoneyInput } from '@/components/money-input';
+import { OptionSelect } from '@/components/option-select';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -14,36 +16,39 @@ import {
 } from '@/components/ui/dialog';
 import { FieldGroup } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import { useCurrency, useToBase } from '@/hooks/use-currency';
 import { todayIso } from '@/lib/date';
 import { toDecimalString } from '@/lib/money';
 import { sell } from '@/routes/products';
+import type { BankOption } from '@/types/banks';
+import { NO_BANK } from '@/types/banks';
 import type { ProductListRow, QuickSaleForm } from '@/types/catalog';
+import type { SaleCustomer } from '@/types/customers';
 import type { PaymentMethodOption } from '@/types/sales';
 
 export type QuickSaleDialogProps = {
     product: ProductListRow | null;
     paymentMethods: PaymentMethodOption[];
+    /** The accounts a card or transfer can be taken into. */
+    banks: BankOption[];
+    /** Walk-in first, so counter trade is already selected. */
+    customers: SaleCustomer[];
     onOpenChange: (open: boolean) => void;
 };
 
 /**
  * Selling one product, in one dialog.
  *
- * Writes a posted sale, so the stock leaves FIFO and what it cost is recorded
- * against the batches that actually paid for it — the same path a full sale
- * takes, which is what keeps profit reporting honest.
+ * Writes a real sale rather than a shortcut — at `ordered`, so it moves no
+ * stock and records nothing as paid. The goods leave when the sale is marked
+ * On the way, and what the customer handed over is recorded on the sale, both
+ * on the sale's own screen. The dialog says so.
  */
 export function QuickSaleDialog({
     product,
     paymentMethods,
+    banks,
+    customers,
     onOpenChange,
 }: QuickSaleDialogProps) {
     return (
@@ -54,6 +59,8 @@ export function QuickSaleDialog({
                         key={product.id}
                         product={product}
                         paymentMethods={paymentMethods}
+                        banks={banks}
+                        customers={customers}
                         onDone={() => onOpenChange(false)}
                     />
                 )}
@@ -65,10 +72,14 @@ export function QuickSaleDialog({
 function SaleForm({
     product,
     paymentMethods,
+    banks,
+    customers,
     onDone,
 }: {
     product: ProductListRow;
     paymentMethods: PaymentMethodOption[];
+    banks: BankOption[];
+    customers: SaleCustomer[];
     onDone: () => void;
 }) {
     const { base } = useCurrency();
@@ -80,7 +91,9 @@ function SaleForm({
         unit_price_currency: base,
         currency: base,
         payment_method: paymentMethods[0]?.value ?? '',
+        bank_id: NO_BANK,
         sold_on: todayIso(),
+        customer_id: customers[0]?.id ?? null,
     });
 
     function submit(event: React.FormEvent) {
@@ -102,8 +115,9 @@ function SaleForm({
     );
     const total = wanted !== null ? wanted * unitPrice : null;
 
-    // The server refuses an oversell outright; saying so while the number is
-    // still being typed saves the round trip.
+    // An order for more than is on the shelf is allowed — the stock does not
+    // move until the sale goes out, and by then it may be in. Worth saying,
+    // not worth refusing.
     const short = wanted !== null && wanted > product.quantity;
 
     return (
@@ -111,9 +125,8 @@ function SaleForm({
             <DialogHeader>
                 <DialogTitle className="pr-8">Sell {product.name}</DialogTitle>
                 <DialogDescription>
-                    {product.quantity === 0
-                        ? 'Nothing in stock — buy some first.'
-                        : `${product.quantity} in stock.`}
+                    Writes a sale at Ordered. The stock leaves when you mark it
+                    On the way. {product.quantity} in stock.
                 </DialogDescription>
             </DialogHeader>
 
@@ -121,11 +134,11 @@ function SaleForm({
                 <div className="grid gap-4 sm:grid-cols-2">
                     <FormField
                         label="Quantity"
-                        error={
-                            form.errors.quantity ??
-                            (short
-                                ? `Only ${product.quantity} in stock.`
-                                : undefined)
+                        error={form.errors.quantity}
+                        description={
+                            short
+                                ? `Only ${product.quantity} in stock — this orders more than you have.`
+                                : undefined
                         }
                     >
                         {(control) => (
@@ -175,29 +188,26 @@ function SaleForm({
                         error={form.errors.payment_method}
                     >
                         {(control) => (
-                            <Select
+                            <OptionSelect
+                                {...control}
+                                className="w-full"
                                 value={form.data.payment_method}
-                                onValueChange={(value) =>
-                                    form.setData(
-                                        'payment_method',
-                                        String(value),
-                                    )
-                                }
-                            >
-                                <SelectTrigger {...control} className="w-full">
-                                    <SelectValue placeholder="How it was paid" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {paymentMethods.map((method) => (
-                                        <SelectItem
-                                            key={method.value}
-                                            value={method.value}
-                                        >
-                                            {method.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                                options={paymentMethods}
+                                onChange={(value) => {
+                                    const method = String(value);
+
+                                    form.setData((data) => ({
+                                        ...data,
+                                        payment_method: method,
+                                        bank_id: bankAfterMethodChange(
+                                            paymentMethods,
+                                            method,
+                                            data.bank_id,
+                                        ),
+                                    }));
+                                }}
+                                placeholder="How it was paid"
+                            />
                         )}
                     </FormField>
 
@@ -214,6 +224,36 @@ function SaleForm({
                         )}
                     </FormField>
                 </div>
+
+                <BankField
+                    banks={banks}
+                    methods={paymentMethods}
+                    method={form.data.payment_method}
+                    value={form.data.bank_id}
+                    error={form.errors.bank_id}
+                    onChange={(value) => form.setData('bank_id', value)}
+                />
+
+                {/* Nothing is recorded as paid: the sale is only an order here.
+                    What was handed over is the sale screen's to ask, once the
+                    goods are actually going out. */}
+                <FormField label="Customer" error={form.errors.customer_id}>
+                    {(control) => (
+                        <OptionSelect
+                            {...control}
+                            className="w-full"
+                            value={String(form.data.customer_id ?? '')}
+                            options={customers.map((customer) => ({
+                                value: String(customer.id),
+                                label: customer.name,
+                            }))}
+                            onChange={(value) =>
+                                form.setData('customer_id', Number(value))
+                            }
+                            placeholder="Who bought it"
+                        />
+                    )}
+                </FormField>
             </FieldGroup>
 
             <div className="flex items-baseline justify-between border-t pt-4">
@@ -232,8 +272,8 @@ function SaleForm({
                 <Button type="button" variant="ghost" onClick={onDone}>
                     Cancel
                 </Button>
-                <Button type="submit" disabled={form.processing || short}>
-                    Sell
+                <Button type="submit" disabled={form.processing}>
+                    Order
                 </Button>
             </DialogFooter>
         </form>

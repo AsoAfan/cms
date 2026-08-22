@@ -24,9 +24,6 @@ class QuickPurchaseRequest extends FormRequest
         $currency = ['nullable', Rule::in($this->enterableCurrencies())];
 
         return [
-            // Optional — see PurchaseRequest. Buying in one click must not stop
-            // to ask who from.
-            'supplier_id' => ['nullable', 'integer', Rule::exists('suppliers', 'id')],
             'quantity' => ['required', 'integer', 'min:1'],
             'unit_cost' => ['required', 'numeric', 'min:0', 'decimal:0,2'],
             'unit_cost_currency' => $currency,
@@ -49,11 +46,6 @@ class QuickPurchaseRequest extends FormRequest
     protected function currencyDate(): ?string
     {
         return $this->dateOrNull('invoiced_on');
-    }
-
-    public function supplierId(): ?int
-    {
-        return $this->filled('supplier_id') ? $this->integer('supplier_id') : null;
     }
 
     public function quantity(): int

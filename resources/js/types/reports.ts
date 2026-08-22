@@ -30,7 +30,10 @@ export type Averages = {
  * out in the window, so net is money left over, not profit.
  */
 export type CashFlow = {
+    /** What was sold on delivered invoices, paid for or not. */
     income: MinorUnits;
+    /** What actually came in: taken at the till, plus repayments received. */
+    collected: MinorUnits;
     purchases: MinorUnits;
     expenses: MinorUnits;
     outcome: MinorUnits;
@@ -60,7 +63,8 @@ export type ActivityRow = {
     date: string;
     label: string;
     detail: string | null;
-    draft: boolean;
+    /** Not yet in any total: ordered, or still on its way. */
+    pending: boolean;
     total: MinorUnits;
 };
 

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\StockMovementType;
 use App\Exceptions\InsufficientStockException;
+use App\Exceptions\StockAlreadyConsumedException;
 use App\Models\Product;
 use App\Models\StockBatch;
 use App\Models\StockBatchConsumption;
@@ -19,9 +20,17 @@ use InvalidArgumentException;
 /**
  * The only thing in the application that writes stock.
  *
- * Everything here is append-only. Nothing edits or deletes a movement, a batch
- * or a consumption, so the ledger can always be replayed to explain how a
- * figure was arrived at.
+ * Receiving and issuing are append-only: nothing edits a movement, a batch or
+ * a consumption, so the ledger can always be replayed to explain how a figure
+ * was arrived at.
+ *
+ * `rollback()` is the single exception, and it is a deliberate one. A document
+ * that moves back down its statuses — a delivery that never arrived, an order
+ * cancelled after it was marked sent — has to stop being in the ledger, and a
+ * shop owner correcting yesterday's typo should not be made to read a pair of
+ * offsetting entries to understand today's stock. So the document's own
+ * movements are removed rather than mirrored. It undoes; it never rewrites.
+ * A receipt whose goods have already been sold on cannot be undone at all.
  *
  * Costing is FIFO. An issue draws from the oldest batches first and records
  * exactly which ones it took from, which is what makes COGS a fact rather than
@@ -216,6 +225,54 @@ final class InventoryService
             occurredAt: $occurredAt,
             reason: $reason,
         );
+    }
+
+    /**
+     * Take everything one document line put into the ledger back out again.
+     *
+     * The only method here that removes anything, and the only way a purchase
+     * or a sale can be edited or deleted after its stock has moved. What it
+     * undoes depends on which direction the movement went:
+     *
+     * - A **receipt** takes its batches with it, so the goods stop existing
+     *   rather than becoming stock nobody can account for. Refused outright if
+     *   any of those batches has been drawn on — see the exception.
+     * - An **issue** drops its consumptions, which hands the quantity back to
+     *   the batches it took them from at the cost it took them at. Later sales
+     *   keep the allocations they already recorded; only what this line took
+     *   comes back.
+     *
+     * Silent when the line never reached the ledger, so callers can undo
+     * without first working out whether there is anything to undo.
+     *
+     * @throws StockAlreadyConsumedException
+     */
+    public function rollback(Model $source): void
+    {
+        $movements = StockMovement::query()
+            ->where('source_type', $source->getMorphClass())
+            ->where('source_id', $source->getKey())
+            ->with(['product', 'batches.consumptions'])
+            ->get();
+
+        if ($movements->isEmpty()) {
+            return;
+        }
+
+        DB::transaction(function () use ($movements): void {
+            foreach ($movements as $movement) {
+                foreach ($movement->batches as $batch) {
+                    if ($batch->consumptions->isNotEmpty()) {
+                        throw StockAlreadyConsumedException::for($movement->product);
+                    }
+
+                    $batch->delete();
+                }
+
+                $movement->consumptions()->delete();
+                $movement->delete();
+            }
+        });
     }
 
     /**

@@ -101,7 +101,18 @@ export function MoneyInput({
                     onKeyDown={onKeyDown}
                 />
                 {options.length > 1 && (
-                    <InputGroupAddon align="inline-end">
+                    /*
+                     * A segment of the field rather than a hint inside it. It
+                     * was styled borderless and transparent to begin with and
+                     * simply did not read as something you could click: a
+                     * right-aligned number ran straight into it. The divider,
+                     * the tint and the pointer cursor are what make it a
+                     * control.
+                     */
+                    <InputGroupAddon
+                        align="inline-end"
+                        className="h-full py-0 pr-0"
+                    >
                         <Select
                             value={currency}
                             onValueChange={(next) =>
@@ -111,8 +122,13 @@ export function MoneyInput({
                             <SelectTrigger
                                 size="sm"
                                 aria-label="Currency for this amount"
-                                className="h-7 border-0 bg-transparent px-1.5 text-xs shadow-none dark:bg-transparent"
+                                title="Show this amount in another currency"
+                                className="h-full cursor-pointer gap-1 rounded-none rounded-r-md border-0 border-l border-input bg-muted/60 px-2 font-mono text-xs font-medium hover:bg-muted dark:bg-input/50 dark:hover:bg-input"
                             >
+                                {/* No `items` on the root, so the trigger shows
+                                    the raw value — the code, which is the whole
+                                    label this control has room for. The popup's
+                                    items spell it out. */}
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -121,7 +137,12 @@ export function MoneyInput({
                                         key={item.code}
                                         value={item.code}
                                     >
-                                        {item.code}
+                                        <span className="font-mono">
+                                            {item.code}
+                                        </span>
+                                        <span className="text-muted-foreground">
+                                            {item.name}
+                                        </span>
                                     </SelectItem>
                                 ))}
                             </SelectContent>

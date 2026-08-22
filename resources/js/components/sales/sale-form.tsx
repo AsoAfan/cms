@@ -1,34 +1,23 @@
 import { useForm } from '@inertiajs/react';
-import { Search, Trash2 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
+import { useMemo } from 'react';
 
+import { BankField, bankAfterMethodChange } from '@/components/bank-field';
+import { StatusPicker } from '@/components/document-status';
 import { FormField } from '@/components/form-field';
 import { MoneyInput } from '@/components/money-input';
-import { PageHeader } from '@/components/page-header';
+import { OptionSelect } from '@/components/option-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from '@/components/ui/card';
-import { FieldGroup } from '@/components/ui/field';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import {
-    InputGroup,
-    InputGroupAddon,
-    InputGroupInput,
-} from '@/components/ui/input-group';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import {
+    SheetDescription,
+    SheetHeader,
+    SheetTitle,
+} from '@/components/ui/sheet';
 import {
     Table,
     TableBody,
@@ -45,22 +34,43 @@ import {
     useToBase,
 } from '@/hooks/use-currency';
 import { todayIso } from '@/lib/date';
+import { store, update } from '@/routes/sales';
+import type { BankOption } from '@/types/banks';
+import { NO_BANK } from '@/types/banks';
+import type { SaleCustomer } from '@/types/customers';
 import type {
     PaymentMethodOption,
+    SaleDetail,
     SaleFormData,
     SaleLineForm,
+    SaleStatusOption,
     SellableProduct,
 } from '@/types/sales';
 
 export type SaleFormProps = {
     products: SellableProduct[];
     paymentMethods: PaymentMethodOption[];
-    sale?: SaleFormData;
-    action: { url: string; method: 'post' | 'put' };
-    title: string;
-    headerActions?: React.ReactNode;
-    submitLabel: string;
+    /** The accounts a card or transfer can be taken into. */
+    banks: BankOption[];
+    statuses: SaleStatusOption[];
+    /** Walk-in first, so counter trade is already selected. */
+    customers: SaleCustomer[];
+    /** The sale being corrected, or the reference the new one will be filed as. */
+    sale?: SaleDetail;
+    nextNumber?: string;
+    onDone: () => void;
 };
+
+function blankLine(currency: string): SaleLineForm {
+    return {
+        product_id: null,
+        quantity: '1',
+        unit_price: '',
+        unit_price_currency: currency,
+        discount: '',
+        discount_currency: currency,
+    };
+}
 
 /**
  * Base-currency minor units for one line: quantity x price, less the discount.
@@ -85,30 +95,59 @@ function lineNet(
     );
 }
 
+/**
+ * Ringing up a sale, in a drawer over whatever screen it was opened from.
+ *
+ * The same form creates and edits: a sale being corrected is the same document
+ * as one being rung up, and having two of these to keep in step was how the two
+ * ended up differing.
+ */
 export function SaleForm({
     products,
     paymentMethods,
+    banks,
+    statuses,
+    customers,
     sale,
-    action,
-    title,
-    headerActions,
-    submitLabel,
+    nextNumber,
+    onDone,
 }: SaleFormProps) {
     const { base, currencies } = useCurrency();
     const format = useFormatMoney();
     const toBase = useToBase();
     const restate = useRestate();
-    const scanRef = useRef<HTMLInputElement>(null);
-    const [scan, setScan] = useState('');
-    const [scanError, setScanError] = useState<string | null>(null);
+
+    const editing = sale !== undefined;
+    // Stored amounts are base currency, so a sale reopens in it whatever it was
+    // originally rung up in.
+    const saleCurrency = sale?.base_currency ?? base;
 
     const form = useForm<SaleFormData>({
+        customer_id: sale?.customer_id ?? customers[0]?.id ?? null,
         sold_on: sale?.sold_on ?? todayIso(),
+        status: sale?.status ?? 'ordered',
         payment_method:
             sale?.payment_method ?? paymentMethods[0]?.value ?? 'cash',
-        currency: sale?.currency ?? base,
+        bank_id: sale?.bank_id ?? NO_BANK,
+        // Off by default, because a new sale opens at `ordered`: goods still on
+        // the shelf have not been paid for. Ticking it is one click for the
+        // counter sale, and the server then takes the figure from the lines so
+        // nothing is rounded on the way.
+        paid_in_full: false,
+        amount_paid: sale?.amount_paid_decimal ?? '',
+        amount_paid_currency: saleCurrency,
+        currency: saleCurrency,
         notes: sale?.notes ?? '',
-        lines: sale?.lines ?? [],
+        lines: sale
+            ? sale.lines.map((line) => ({
+                  product_id: line.product_id,
+                  quantity: String(line.quantity),
+                  unit_price: line.unit_price_decimal,
+                  unit_price_currency: saleCurrency,
+                  discount: line.discount_decimal,
+                  discount_currency: saleCurrency,
+              }))
+            : [blankLine(saleCurrency)],
     });
 
     const total = useMemo(
@@ -119,6 +158,14 @@ export function SaleForm({
             ),
         [form.data.lines, toBase],
     );
+
+    const paid = form.data.paid_in_full
+        ? total
+        : toBase(form.data.amount_paid, form.data.amount_paid_currency);
+
+    // What the customer is being lent. It only becomes a debt once the goods are
+    // theirs, which is what the server counts too.
+    const owing = total - paid;
 
     /**
      * Changing what the customer paid in carries every amount still on the old
@@ -154,63 +201,17 @@ export function SaleForm({
     );
 
     /**
-     * Type a name and press Enter. An exact name wins over a partial one, so
-     * "Voile Panel 117" does not get beaten by a longer name containing it. A
-     * product already on the sale gets one more rather than a second line,
-     * which is what a till should do.
+     * What each line's dropdown offers, with what is on the shelf beside the
+     * name — the number that decides whether this line can go out today.
      */
-    function addByName(term: string) {
-        const needle = term.trim().toLowerCase();
-
-        if (needle === '') {
-            return;
-        }
-
-        const product =
-            products.find(
-                (candidate) => candidate.name.toLowerCase() === needle,
-            ) ??
-            products.find((candidate) =>
-                candidate.name.toLowerCase().includes(needle),
-            );
-
-        if (!product) {
-            setScanError(`Nothing matches "${term}".`);
-
-            return;
-        }
-
-        setScanError(null);
-        setScan('');
-
-        const existing = form.data.lines.findIndex(
-            (line) => line.product_id === product.id,
-        );
-
-        if (existing >= 0) {
-            const line = form.data.lines[existing];
-
-            updateLine(existing, {
-                quantity: String((Number(line.quantity) || 0) + 1),
-            });
-
-            return;
-        }
-
-        form.setData('lines', [
-            ...form.data.lines,
-            {
-                product_id: product.id,
-                quantity: '1',
-                // The catalogue price is held in the base currency, so the field
-                // opens in the base currency to match it.
-                unit_price: product.selling_price,
-                unit_price_currency: base,
-                discount: '',
-                discount_currency: form.data.currency,
-            },
-        ]);
-    }
+    const productOptions = useMemo(
+        () =>
+            products.map((product) => ({
+                value: String(product.id),
+                label: `${product.name} · ${product.on_hand} in stock`,
+            })),
+        [products],
+    );
 
     function updateLine(index: number, patch: Partial<SaleLineForm>) {
         form.setData(
@@ -221,6 +222,28 @@ export function SaleForm({
         );
     }
 
+    function chooseProduct(index: number, productId: number) {
+        const product = byId.get(productId);
+
+        // The catalogue price is held in the base currency, so pre-filling it
+        // has to put the field back into the base currency to match.
+        const prefill = form.data.lines[index].unit_price
+            ? {}
+            : {
+                  unit_price: product?.selling_price ?? '',
+                  unit_price_currency: base,
+              };
+
+        updateLine(index, { product_id: productId, ...prefill });
+    }
+
+    function addLine() {
+        form.setData('lines', [
+            ...form.data.lines,
+            blankLine(form.data.currency),
+        ]);
+    }
+
     function removeLine(index: number) {
         form.setData(
             'lines',
@@ -228,13 +251,26 @@ export function SaleForm({
         );
     }
 
+    /** Enter on the last line adds another, so a whole sale is typeable. */
+    function onLineKeyDown(event: React.KeyboardEvent, index: number) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+
+            if (index === form.data.lines.length - 1) {
+                addLine();
+            }
+        }
+    }
+
     function submit(event: React.FormEvent) {
         event.preventDefault();
 
-        if (action.method === 'put') {
-            form.put(action.url, { preserveScroll: true });
+        const options = { preserveScroll: true, onSuccess: onDone };
+
+        if (sale) {
+            form.put(update.url(sale.id), options);
         } else {
-            form.post(action.url);
+            form.post(store.url(), options);
         }
     }
 
@@ -245,373 +281,427 @@ export function SaleForm({
     }
 
     return (
-        <form onSubmit={submit} className="flex flex-col gap-6">
-            <PageHeader
-                title={title}
-                actions={
-                    <>
-                        {headerActions}
-                        <Button type="submit" disabled={form.processing}>
-                            {submitLabel}
-                        </Button>
-                    </>
-                }
-            />
+        <form
+            onSubmit={submit}
+            className="mx-auto flex w-full max-w-4xl flex-col gap-5"
+        >
+            <SheetHeader className="px-0">
+                <SheetTitle className="flex items-center gap-2">
+                    {editing ? 'Edit sale' : 'New sale'}
+                    <span className="font-mono text-sm font-normal text-muted-foreground">
+                        {sale?.number ?? nextNumber}
+                    </span>
+                </SheetTitle>
+                <SheetDescription>
+                    {editing
+                        ? 'Corrections put the stock back and take it out again to match.'
+                        : 'Stock leaves when the sale goes out, not when it is asked for.'}
+                </SheetDescription>
+            </SheetHeader>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>Items</CardTitle>
-                    <CardDescription>
-                        Type a product name and press Enter. Entering the same
-                        one again adds another.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-4">
-                    <div className="max-w-md">
-                        <InputGroup>
-                            <InputGroupInput
-                                ref={scanRef}
-                                value={scan}
-                                autoFocus
-                                placeholder="Type a product name"
-                                aria-label="Add a product by name"
-                                aria-invalid={scanError ? true : undefined}
-                                onChange={(event) => {
-                                    setScan(event.target.value);
-                                    setScanError(null);
-                                }}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                        event.preventDefault();
-                                        addByName(scan);
-                                    }
+            <FieldGroup>
+                <FormField label="Status" error={form.errors.status}>
+                    {() => (
+                        <StatusPicker
+                            value={form.data.status}
+                            statuses={statuses}
+                            onChange={(status) =>
+                                form.setData('status', status)
+                            }
+                        />
+                    )}
+                </FormField>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField
+                        label="Customer"
+                        error={form.errors.customer_id}
+                        description="Counter trade goes to Walk-in."
+                    >
+                        {(control) => (
+                            <OptionSelect
+                                {...control}
+                                className="w-full"
+                                value={String(form.data.customer_id ?? '')}
+                                options={customers.map((customer) => ({
+                                    value: String(customer.id),
+                                    label: customer.name,
+                                }))}
+                                onChange={(value) =>
+                                    form.setData('customer_id', Number(value))
+                                }
+                                placeholder="Who bought it"
+                            />
+                        )}
+                    </FormField>
+
+                    <FormField
+                        label="Date"
+                        error={form.errors.sold_on}
+                        description="Costed at that day's rate."
+                    >
+                        {(control) => (
+                            <Input
+                                {...control}
+                                type="date"
+                                value={form.data.sold_on}
+                                onChange={(event) =>
+                                    form.setData('sold_on', event.target.value)
+                                }
+                            />
+                        )}
+                    </FormField>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField
+                        label="Payment"
+                        error={form.errors.payment_method}
+                    >
+                        {(control) => (
+                            <OptionSelect
+                                {...control}
+                                className="w-full"
+                                value={form.data.payment_method}
+                                options={paymentMethods}
+                                onChange={(value) => {
+                                    const method = String(value);
+
+                                    form.setData((data) => ({
+                                        ...data,
+                                        payment_method: method,
+                                        bank_id: bankAfterMethodChange(
+                                            paymentMethods,
+                                            method,
+                                            data.bank_id,
+                                        ),
+                                    }));
                                 }}
                             />
-                            <InputGroupAddon>
-                                <Search />
-                            </InputGroupAddon>
-                        </InputGroup>
-                        {scanError && (
-                            <p className="mt-1 text-xs text-destructive">
-                                {scanError}
-                            </p>
                         )}
-                    </div>
+                    </FormField>
 
-                    {typeof form.errors.lines === 'string' && (
-                        <p className="text-sm text-destructive">
-                            {form.errors.lines}
-                        </p>
+                    {currencies.length > 1 && (
+                        <FormField
+                            label="Paid in"
+                            error={form.errors.currency}
+                            description={`Recorded in ${base} either way.`}
+                        >
+                            {(control) => (
+                                <OptionSelect
+                                    {...control}
+                                    className="w-full"
+                                    value={form.data.currency}
+                                    options={currencies.map((currency) => ({
+                                        value: currency.code,
+                                        label: `${currency.code} — ${currency.name}`,
+                                    }))}
+                                    onChange={(value) =>
+                                        changeSaleCurrency(String(value))
+                                    }
+                                />
+                            )}
+                        </FormField>
                     )}
+                </div>
 
-                    {form.data.lines.length === 0 ? (
-                        <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                            Nothing on this sale yet.
-                        </p>
-                    ) : (
-                        <div className="overflow-x-auto rounded-lg border">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Product</TableHead>
-                                        <TableHead className="w-24 text-right">
-                                            Qty
-                                        </TableHead>
-                                        <TableHead className="w-32 text-right">
-                                            Price
-                                        </TableHead>
-                                        <TableHead className="w-32 text-right">
-                                            Discount
-                                        </TableHead>
-                                        <TableHead className="w-32 text-right">
-                                            Total
-                                        </TableHead>
-                                        <TableHead className="w-12" />
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {form.data.lines.map((line, index) => {
-                                        const product =
-                                            line.product_id === null
-                                                ? undefined
-                                                : byId.get(line.product_id);
-                                        const wanted = Number(line.quantity);
-                                        const short =
-                                            product !== undefined &&
-                                            Number.isFinite(wanted) &&
-                                            wanted > product.on_hand;
+                <BankField
+                    banks={banks}
+                    methods={paymentMethods}
+                    method={form.data.payment_method}
+                    value={form.data.bank_id}
+                    error={form.errors.bank_id}
+                    onChange={(value) => form.setData('bank_id', value)}
+                />
+            </FieldGroup>
 
-                                        return (
-                                            <TableRow key={index}>
-                                                <TableCell>
-                                                    <span className="font-medium">
-                                                        {product?.name ??
-                                                            'Unknown'}
-                                                    </span>
-                                                    {short && (
-                                                        <Badge
-                                                            variant="outline"
-                                                            className="mt-1 text-destructive"
-                                                        >
-                                                            only{' '}
-                                                            {product?.on_hand}{' '}
-                                                            in stock
-                                                        </Badge>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Input
-                                                        inputMode="numeric"
-                                                        className="text-right tabular-nums"
-                                                        aria-label={`Quantity for ${product?.name ?? 'line'}`}
-                                                        aria-invalid={
-                                                            lineError(
-                                                                index,
-                                                                'quantity',
-                                                            )
-                                                                ? true
-                                                                : undefined
-                                                        }
-                                                        value={line.quantity}
-                                                        onChange={(event) =>
-                                                            updateLine(index, {
-                                                                quantity:
-                                                                    event.target
-                                                                        .value,
-                                                            })
-                                                        }
-                                                    />
-                                                </TableCell>
-                                                <TableCell>
-                                                    <MoneyInput
-                                                        aria-label={`Price for ${product?.name ?? 'line'}`}
-                                                        aria-invalid={
-                                                            lineError(
-                                                                index,
-                                                                'unit_price',
-                                                            )
-                                                                ? true
-                                                                : undefined
-                                                        }
-                                                        value={line.unit_price}
-                                                        currency={
-                                                            line.unit_price_currency
-                                                        }
-                                                        onChange={(value) =>
-                                                            updateLine(index, {
-                                                                unit_price:
-                                                                    value,
-                                                            })
-                                                        }
-                                                        onCurrencyChange={(
-                                                            currency,
-                                                        ) =>
-                                                            updateLine(index, {
-                                                                unit_price_currency:
-                                                                    currency,
-                                                            })
-                                                        }
-                                                    />
-                                                </TableCell>
-                                                <TableCell>
-                                                    <MoneyInput
-                                                        aria-label={`Discount for ${product?.name ?? 'line'}`}
-                                                        value={line.discount}
-                                                        currency={
-                                                            line.discount_currency
-                                                        }
-                                                        onChange={(value) =>
-                                                            updateLine(index, {
-                                                                discount: value,
-                                                            })
-                                                        }
-                                                        onCurrencyChange={(
-                                                            currency,
-                                                        ) =>
-                                                            updateLine(index, {
-                                                                discount_currency:
-                                                                    currency,
-                                                            })
-                                                        }
-                                                    />
-                                                </TableCell>
-                                                <TableCell className="text-right font-mono tabular-nums">
-                                                    {format(
-                                                        lineNet(line, toBase),
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="icon-sm"
-                                                        aria-label={`Remove ${product?.name ?? 'line'}`}
-                                                        onClick={() =>
-                                                            removeLine(index)
-                                                        }
-                                                    >
-                                                        <Trash2 />
-                                                    </Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        );
-                                    })}
-                                </TableBody>
-                            </Table>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+            <div className="flex flex-col gap-3">
+                {typeof form.errors.lines === 'string' && (
+                    <p className="text-sm text-destructive">
+                        {form.errors.lines}
+                    </p>
+                )}
 
-            <div className="grid gap-6 lg:grid-cols-3">
-                <Card className="lg:col-span-2">
-                    <CardHeader>
-                        <CardTitle>Sale</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <FieldGroup>
-                            <div className="grid gap-6 sm:grid-cols-2">
-                                <FormField
-                                    label="Date"
-                                    error={form.errors.sold_on}
-                                >
-                                    {(control) => (
-                                        <Input
-                                            {...control}
-                                            type="date"
-                                            value={form.data.sold_on}
-                                            onChange={(event) =>
-                                                form.setData(
-                                                    'sold_on',
-                                                    event.target.value,
-                                                )
-                                            }
-                                        />
-                                    )}
-                                </FormField>
+                <div className="overflow-x-auto rounded-lg border">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Product</TableHead>
+                                <TableHead className="w-20 text-right">
+                                    Qty
+                                </TableHead>
+                                <TableHead className="w-32 text-right">
+                                    Price
+                                </TableHead>
+                                <TableHead className="w-32 text-right">
+                                    Discount
+                                </TableHead>
+                                <TableHead className="w-28 text-right">
+                                    Net
+                                </TableHead>
+                                <TableHead className="w-10" />
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {form.data.lines.map((line, index) => {
+                                const product =
+                                    line.product_id === null
+                                        ? undefined
+                                        : byId.get(line.product_id);
+                                const wanted = Number(line.quantity);
+                                // Selling more than is on the shelf is
+                                // allowed — an order can be placed for goods
+                                // still on their way in — but it is worth
+                                // saying before it goes out.
+                                const short =
+                                    product !== undefined &&
+                                    Number.isFinite(wanted) &&
+                                    wanted > product.on_hand;
 
-                                <FormField
-                                    label="Payment"
-                                    error={form.errors.payment_method}
-                                >
-                                    {(control) => (
-                                        <Select
-                                            value={form.data.payment_method}
-                                            onValueChange={(value) =>
-                                                form.setData(
-                                                    'payment_method',
-                                                    String(value),
-                                                )
-                                            }
-                                        >
-                                            <SelectTrigger
-                                                {...control}
-                                                className="w-full"
-                                            >
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {paymentMethods.map(
-                                                    (method) => (
-                                                        <SelectItem
-                                                            key={method.value}
-                                                            value={method.value}
-                                                        >
-                                                            {method.label}
-                                                        </SelectItem>
-                                                    ),
-                                                )}
-                                            </SelectContent>
-                                        </Select>
-                                    )}
-                                </FormField>
-                            </div>
-
-                            {currencies.length > 1 && (
-                                <div className="grid gap-6 sm:grid-cols-2">
-                                    <FormField
-                                        label="Paid in"
-                                        error={form.errors.currency}
-                                        description={`Sets the currency for every price above. Recorded in ${base} either way.`}
-                                    >
-                                        {(control) => (
-                                            <Select
-                                                value={form.data.currency}
-                                                onValueChange={(value) =>
-                                                    changeSaleCurrency(
-                                                        String(value),
+                                return (
+                                    <TableRow key={index}>
+                                        <TableCell>
+                                            <OptionSelect
+                                                className="w-full min-w-56"
+                                                aria-label={`Product for line ${index + 1}`}
+                                                aria-invalid={
+                                                    lineError(
+                                                        index,
+                                                        'product_id',
+                                                    )
+                                                        ? true
+                                                        : undefined
+                                                }
+                                                autoFocus={
+                                                    index === 0 && !editing
+                                                }
+                                                value={
+                                                    line.product_id === null
+                                                        ? ''
+                                                        : String(
+                                                              line.product_id,
+                                                          )
+                                                }
+                                                options={productOptions}
+                                                onChange={(value) =>
+                                                    chooseProduct(
+                                                        index,
+                                                        Number(value),
                                                     )
                                                 }
-                                            >
-                                                <SelectTrigger
-                                                    {...control}
-                                                    className="w-full"
-                                                >
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {currencies.map(
-                                                        (currency) => (
-                                                            <SelectItem
-                                                                key={
-                                                                    currency.code
-                                                                }
-                                                                value={
-                                                                    currency.code
-                                                                }
-                                                            >
-                                                                {currency.code}{' '}
-                                                                —{' '}
-                                                                {currency.name}
-                                                            </SelectItem>
-                                                        ),
+                                                placeholder="Choose a product"
+                                            />
+                                            {lineError(index, 'product_id') && (
+                                                <p className="mt-1 text-xs text-destructive">
+                                                    {lineError(
+                                                        index,
+                                                        'product_id',
                                                     )}
-                                                </SelectContent>
-                                            </Select>
-                                        )}
-                                    </FormField>
-                                </div>
-                            )}
+                                                </p>
+                                            )}
+                                            {short && (
+                                                <Badge
+                                                    variant="outline"
+                                                    className="mt-1 text-destructive"
+                                                >
+                                                    only {product?.on_hand} in
+                                                    stock
+                                                </Badge>
+                                            )}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input
+                                                inputMode="numeric"
+                                                className="text-right tabular-nums"
+                                                aria-label={`Quantity for line ${index + 1}`}
+                                                aria-invalid={
+                                                    lineError(index, 'quantity')
+                                                        ? true
+                                                        : undefined
+                                                }
+                                                value={line.quantity}
+                                                onKeyDown={(event) =>
+                                                    onLineKeyDown(event, index)
+                                                }
+                                                onChange={(event) =>
+                                                    updateLine(index, {
+                                                        quantity:
+                                                            event.target.value,
+                                                    })
+                                                }
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <MoneyInput
+                                                aria-label={`Price for ${product?.name ?? 'line'}`}
+                                                aria-invalid={
+                                                    lineError(
+                                                        index,
+                                                        'unit_price',
+                                                    )
+                                                        ? true
+                                                        : undefined
+                                                }
+                                                value={line.unit_price}
+                                                currency={
+                                                    line.unit_price_currency
+                                                }
+                                                onChange={(value) =>
+                                                    updateLine(index, {
+                                                        unit_price: value,
+                                                    })
+                                                }
+                                                onCurrencyChange={(currency) =>
+                                                    updateLine(index, {
+                                                        unit_price_currency:
+                                                            currency,
+                                                    })
+                                                }
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <MoneyInput
+                                                aria-label={`Discount for line ${index + 1}`}
+                                                value={line.discount}
+                                                currency={
+                                                    line.discount_currency
+                                                }
+                                                onChange={(value) =>
+                                                    updateLine(index, {
+                                                        discount: value,
+                                                    })
+                                                }
+                                                onCurrencyChange={(currency) =>
+                                                    updateLine(index, {
+                                                        discount_currency:
+                                                            currency,
+                                                    })
+                                                }
+                                            />
+                                        </TableCell>
+                                        <TableCell className="text-right font-mono text-sm tabular-nums">
+                                            {format(lineNet(line, toBase))}
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon-sm"
+                                                aria-label={`Remove line ${index + 1}`}
+                                                disabled={
+                                                    form.data.lines.length === 1
+                                                }
+                                                onClick={() =>
+                                                    removeLine(index)
+                                                }
+                                            >
+                                                <Trash2 />
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                </div>
 
-                            <FormField label="Notes" error={form.errors.notes}>
-                                {(control) => (
-                                    <Textarea
-                                        {...control}
-                                        rows={2}
-                                        value={form.data.notes ?? ''}
-                                        onChange={(event) =>
-                                            form.setData(
-                                                'notes',
-                                                event.target.value,
-                                            )
-                                        }
-                                    />
-                                )}
-                            </FormField>
-                        </FieldGroup>
-                    </CardContent>
-                </Card>
+                <div>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addLine}
+                    >
+                        <Plus data-icon="inline-start" />
+                        Add line
+                    </Button>
+                </div>
+            </div>
 
-                <Card>
-                    <CardContent className="flex flex-col gap-2 text-sm">
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Items</span>
-                            <span className="tabular-nums">
-                                {form.data.lines.length}
-                            </span>
-                        </div>
-                        <Separator />
-                        {/* No currency in the label: `format` puts it on the
-                            figure, which follows whichever currency the user is
-                            reading in. */}
-                        <div className="flex justify-between text-xl font-semibold">
-                            <span>Total</span>
-                            <span className="font-mono tabular-nums">
-                                {format(total)}
-                            </span>
-                        </div>
-                    </CardContent>
-                </Card>
+            <FieldGroup>
+                <Field orientation="horizontal">
+                    <Checkbox
+                        id="paid_in_full"
+                        checked={form.data.paid_in_full}
+                        onCheckedChange={(checked) =>
+                            form.setData('paid_in_full', checked === true)
+                        }
+                    />
+                    <FieldLabel htmlFor="paid_in_full" className="font-normal">
+                        Paid in full
+                    </FieldLabel>
+                </Field>
+
+                {/* Only asked for when it is not: the amount handed over is what
+                    turns the rest of the invoice into the customer's loan. */}
+                {!form.data.paid_in_full && (
+                    <FormField
+                        label="Paid now"
+                        error={form.errors.amount_paid}
+                        description="Leave at nothing to put the whole invoice on their account."
+                    >
+                        {(control) => (
+                            <MoneyInput
+                                {...control}
+                                value={form.data.amount_paid}
+                                currency={form.data.amount_paid_currency}
+                                onChange={(value) =>
+                                    form.setData('amount_paid', value)
+                                }
+                                onCurrencyChange={(currency) =>
+                                    form.setData(
+                                        'amount_paid_currency',
+                                        currency,
+                                    )
+                                }
+                            />
+                        )}
+                    </FormField>
+                )}
+
+                <FormField label="Notes" error={form.errors.notes}>
+                    {(control) => (
+                        <Textarea
+                            {...control}
+                            rows={2}
+                            value={form.data.notes ?? ''}
+                            onChange={(event) =>
+                                form.setData('notes', event.target.value)
+                            }
+                        />
+                    )}
+                </FormField>
+            </FieldGroup>
+
+            <Separator />
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-2">
+                <div className="flex flex-col text-sm">
+                    {/* No currency in the label: `format` puts it on the figure,
+                        and the figure follows whichever currency the user is
+                        reading in. */}
+                    <span className="text-base font-semibold">
+                        Total {format(total)}
+                    </span>
+                    {/* What is being lent, said plainly before the sale is
+                        saved rather than discovered on a statement later. */}
+                    {owing !== 0 && (
+                        <span className="text-muted-foreground">
+                            {owing > 0
+                                ? `${format(owing)} on account, owed once the customer has the goods.`
+                                : `${format(-owing)} more than the invoice comes to.`}
+                        </span>
+                    )}
+                </div>
+
+                <div className="flex gap-2">
+                    <Button type="button" variant="ghost" onClick={onDone}>
+                        Cancel
+                    </Button>
+                    <Button type="submit" disabled={form.processing}>
+                        {editing ? 'Save changes' : 'Record sale'}
+                    </Button>
+                </div>
             </div>
         </form>
     );

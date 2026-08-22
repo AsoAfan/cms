@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Expenses;
 use App\Enums\PaymentMethod;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Expenses\ExpenseRequest;
+use App\Models\Bank;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Support\Flash;
@@ -21,12 +22,13 @@ class ExpenseController extends Controller
 {
     public function index(): Response
     {
-        $table = $this->table(Expense::query()->with('category:id,name'))
+        $table = $this->table(Expense::query()->with(['category:id,name', 'bank:id,name']))
             ->searchable(['title', 'notes'])
             ->sortable(['spent_on', 'amount'], default: 'spent_on', direction: 'desc')
             ->filterable([
                 'expense_category_id',
                 'payment_method',
+                'bank_id',
             ])
             ->dateRange('spent_on');
 
@@ -37,7 +39,7 @@ class ExpenseController extends Controller
         $filtered = Money::fromMinorUnits(
             $this->table(Expense::query())
                 ->searchable(['title', 'notes'])
-                ->filterable(['expense_category_id', 'payment_method'])
+                ->filterable(['expense_category_id', 'payment_method', 'bank_id'])
                 ->dateRange('spent_on')
                 ->sum('amount')
         );
@@ -51,6 +53,8 @@ class ExpenseController extends Controller
             'spent_on' => $expense->spent_on->toDateString(),
             'payment_method' => $expense->payment_method->value,
             'payment_method_label' => $expense->payment_method->label(),
+            'bank_id' => $expense->bank_id,
+            'bank' => $expense->bank?->name,
             'notes' => $expense->notes,
         ]);
 
@@ -61,13 +65,9 @@ class ExpenseController extends Controller
                 ->withCount('expenses')
                 ->orderBy('name')
                 ->get(['id', 'name']),
-            'paymentMethods' => array_map(
-                static fn (PaymentMethod $method): array => [
-                    'value' => $method->value,
-                    'label' => $method->label(),
-                ],
-                PaymentMethod::cases(),
-            ),
+            'paymentMethods' => PaymentMethod::options(),
+            // Which account it was paid out of, on a card or transfer.
+            'banks' => Bank::options(),
             'filteredTotal' => $filtered->minorUnits,
         ]);
     }

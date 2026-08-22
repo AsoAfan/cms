@@ -5,9 +5,10 @@ namespace App\Http\Controllers\Catalog;
 use App\Enums\PaymentMethod;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Catalog\ProductRequest;
+use App\Models\Bank;
+use App\Models\Customer;
 use App\Models\Product;
 use App\Models\StockMovement;
-use App\Models\Supplier;
 use App\Queries\StockOnHandQuery;
 use App\Support\Flash;
 use Illuminate\Database\Eloquent\Builder;
@@ -60,17 +61,21 @@ class ProductController extends Controller
             'table' => $table->state(),
             // Both quick dialogs live on this page, so their options travel
             // with it rather than costing a round trip on first open.
-            'suppliers' => Supplier::query()
-                ->where('is_active', true)
+            'paymentMethods' => PaymentMethod::options(),
+            // Which account took the money, on a card or transfer sale.
+            'banks' => Bank::options(),
+            // Walk-in first, so selling across the counter needs no decision.
+            // The quick dialog records a sale paid in full; putting one on a
+            // customer's account is what the full sale screen is for.
+            'customers' => Customer::query()
+                ->orderByRaw('case when name = ? then 0 else 1 end', [Customer::WALK_IN])
                 ->orderBy('name')
-                ->get(['id', 'name']),
-            'paymentMethods' => array_map(
-                static fn (PaymentMethod $method): array => [
-                    'value' => $method->value,
-                    'label' => $method->label(),
-                ],
-                PaymentMethod::cases(),
-            ),
+                ->get(['id', 'name'])
+                ->map(fn (Customer $customer): array => [
+                    'id' => $customer->id,
+                    'name' => $customer->name,
+                ])
+                ->all(),
         ]);
     }
 

@@ -37,10 +37,13 @@ export default function Reports({
     cashFlow,
     previous,
     activity,
+    owed,
 }: PeriodProps & {
     cashFlow: CashFlow;
     previous: CashFlow;
     activity: Activity;
+    /** What customers owe today — see `CustomerBalanceQuery`. */
+    owed: number;
 }) {
     const url = usePage().url;
     const combined = useMemo(() => combineActivity(activity), [activity]);
@@ -70,13 +73,23 @@ export default function Reports({
                 </TabsList>
 
                 <TabsContent value="totals" className="flex flex-col gap-4">
-                    <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         <StatTile
                             label="Income"
                             value={cashFlow.income}
                             money
                             previous={previous.income}
-                            hint="Taken on posted sales"
+                            hint="Invoiced on delivered sales"
+                        />
+                        {/* Two income figures, because on credit terms they are
+                            two different questions: what was sold, and what
+                            actually came through the door. */}
+                        <StatTile
+                            label="Collected"
+                            value={cashFlow.collected}
+                            money
+                            previous={previous.collected}
+                            hint="Taken at the till, plus repayments in"
                         />
                         <StatTile
                             label="Outcome"
@@ -102,12 +115,24 @@ export default function Reports({
                             previous={previous.net}
                             hint="Income less outcome"
                         />
+                        {/* Not period arithmetic: what is unpaid today. It has no
+                            comparison figure for the same reason. */}
+                        <StatTile
+                            label="Owed to you"
+                            value={owed}
+                            money
+                            hint={
+                                owed === 0
+                                    ? 'Nobody owes anything'
+                                    : 'Out on customer loans'
+                            }
+                        />
                     </div>
 
                     <ActivityTable
                         tab="all"
                         rows={combined}
-                        emptyDescription="Posted documents appear here once there are some in this period."
+                        emptyDescription="Documents appear here once their goods have moved in this period."
                     />
                 </TabsContent>
 

@@ -1,5 +1,6 @@
 <?php
 
+use Database\Seeders\CurrencySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -16,6 +17,11 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
+    // Every feature test gets the opening currencies, because the application
+    // cannot describe an amount without knowing what its books are kept in.
+    // `CurrencyService::base()` falls back to config only before the first row
+    // exists, which is a migration-time state and not one worth testing against.
+    ->beforeEach(fn () => test()->seed(CurrencySeeder::class))
     ->in('Feature');
 
 /*

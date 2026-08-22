@@ -1,7 +1,7 @@
 <?php
 
-use App\Actions\Purchasing\PostPurchaseAction;
-use App\Actions\Sales\PostSaleAction;
+use App\Actions\Purchasing\SetPurchaseStatusAction;
+use App\Actions\Sales\SetSaleStatusAction;
 use App\Enums\CostAllocationMethod;
 use App\Enums\PaymentMethod;
 use App\Enums\PurchaseStatus;
@@ -11,7 +11,6 @@ use App\Models\ExpenseCategory;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\Sale;
-use App\Models\Supplier;
 use App\Models\User;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
@@ -25,11 +24,11 @@ beforeEach(function () {
         'name' => 'Blackout 117x137',
     ]);
 
-    $supplier = Supplier::factory()->create(['name' => 'Northwind Textiles']);
-
-    $purchase = Purchase::factory()->for($supplier)->create([
+    // Both documents are moved along the same way the screens move them, so
+    // what the report counts is what the ledger actually holds.
+    $purchase = Purchase::factory()->create([
         'invoiced_on' => '2026-03-01',
-        'status' => PurchaseStatus::Draft,
+        'status' => PurchaseStatus::Ordered,
     ]);
     $purchase->lines()->create([
         'product_id' => $this->product->id,
@@ -37,11 +36,11 @@ beforeEach(function () {
         'unit_cost' => Money::fromDecimal('20.00'),
         'discount' => Money::zero(),
     ]);
-    app(PostPurchaseAction::class)->handle($purchase->refresh());
+    app(SetPurchaseStatusAction::class)->handle($purchase->refresh(), PurchaseStatus::Proceed);
 
     $sale = Sale::factory()->create([
         'sold_on' => '2026-03-05',
-        'status' => SaleStatus::Draft,
+        'status' => SaleStatus::Ordered,
         'payment_method' => PaymentMethod::Cash,
     ]);
     $sale->lines()->create([
@@ -50,7 +49,7 @@ beforeEach(function () {
         'unit_price' => Money::fromDecimal('44.00'),
         'discount' => Money::zero(),
     ]);
-    app(PostSaleAction::class)->handle($sale->refresh());
+    app(SetSaleStatusAction::class)->handle($sale->refresh(), SaleStatus::Proceed);
 
     Expense::factory()->create([
         'expense_category_id' => ExpenseCategory::factory()->create(['name' => 'Rent'])->id,
@@ -123,14 +122,16 @@ it('lists every document behind the figures, by kind', function () {
                 ->where('date', '2026-03-05')
                 ->where('label', 'SAL-00001')
                 ->where('detail', 'Cash')
-                ->where('draft', false)
+                ->where('pending', false)
                 ->where('total', 17600)
                 ->etc()
             )
             ->has('activity.purchases', 1, fn ($row) => $row
                 ->where('kind', 'purchase')
                 ->where('date', '2026-03-01')
-                ->where('detail', 'Northwind Textiles')
+                // No supplier to name any more, so the row says where the
+                // order stands instead.
+                ->where('detail', 'Proceed')
                 ->where('total', 20000)
                 ->etc()
             )
@@ -154,10 +155,11 @@ it('leaves documents outside the period out of the lists', function () {
         );
 });
 
-it('leaves drafts out of the report, since no total counts them', function () {
+it('leaves orders out of the report, since no total counts them', function () {
+    // Asked for, still on the shelf: nothing has been sold and nothing taken.
     Sale::factory()->create([
         'sold_on' => '2026-03-06',
-        'status' => SaleStatus::Draft,
+        'status' => SaleStatus::Ordered,
         'payment_method' => PaymentMethod::Cash,
     ]);
 
@@ -263,21 +265,21 @@ it('shows the dashboard with the same figures and recent activity', function () 
         );
 });
 
-it('lists drafts on the dashboard, where they are work still to do', function () {
+it('lists orders on the dashboard, where they are work still to do', function () {
     Sale::factory()->create([
         'sold_on' => '2026-03-06',
-        'status' => SaleStatus::Draft,
+        'status' => SaleStatus::Ordered,
         'payment_method' => PaymentMethod::Cash,
     ]);
 
     $this->get('/dashboard?from=2026-03-01&to=2026-03-31')
         ->assertInertia(fn ($page) => $page
             ->has('recent.sales', 2)
-            // Newest first, and a draft invoice comes to nothing until it has
-            // lines on it.
-            ->where('recent.sales.0.draft', true)
+            // Newest first, and an order with no lines on it yet comes to
+            // nothing.
+            ->where('recent.sales.0.pending', true)
             ->where('recent.sales.0.total', 0)
-            ->where('recent.sales.1.draft', false)
+            ->where('recent.sales.1.pending', false)
         );
 });
 
@@ -287,7 +289,7 @@ it('shows only the latest few documents of each kind on the dashboard', function
     for ($i = 0; $i < 8; $i++) {
         Sale::factory()->create([
             'sold_on' => '2026-03-07',
-            'status' => SaleStatus::Posted,
+            'status' => SaleStatus::Proceed,
             'payment_method' => PaymentMethod::Cash,
         ]);
     }

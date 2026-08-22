@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\PurchaseStatus;
+use App\Services\CurrencyService;
 use App\Support\ExchangeRates;
 use App\Support\Money;
 use Database\Factories\PurchaseFactory;
@@ -10,37 +11,40 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
- * A supplier invoice.
+ * A purchase invoice.
  *
  * @property int $id
- * @property int|null $supplier_id
  * @property string $number
  * @property Carbon $invoiced_on
  * @property PurchaseStatus $status
  * @property string $currency
  * @property int $exchange_rate
  * @property string|null $notes
- * @property Carbon|null $posted_at
+ * @property Carbon|null $committed_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
- * @property-read Supplier|null $supplier
  * @property-read Collection<int, PurchaseLine> $lines
  * @property-read Collection<int, PurchaseAdditionalCost> $additionalCosts
+ *
+ * Aggregates the read models add with `withSum`, so a page of invoices costs a
+ * fixed number of queries rather than one per row. Present only when the query
+ * asked for them, and null when nothing matched — cast with `(int)`, never
+ * through a model cast, which does not apply to an aggregate alias.
+ * @property-read int|null $goods_minor_units
+ * @property-read int|null $additional_minor_units
  */
 #[Fillable([
-    'supplier_id',
     'number',
     'invoiced_on',
     'status',
     'currency',
     'exchange_rate',
     'notes',
-    'posted_at',
+    'committed_at',
 ])]
 class Purchase extends Model
 {
@@ -56,7 +60,7 @@ class Purchase extends Model
             'invoiced_on' => 'date',
             'status' => PurchaseStatus::class,
             'exchange_rate' => 'integer',
-            'posted_at' => 'datetime',
+            'committed_at' => 'datetime',
         ];
     }
 
@@ -66,7 +70,7 @@ class Purchase extends Model
      */
     public function isForeignCurrency(): bool
     {
-        return $this->currency !== config('money.currency');
+        return $this->currency !== app(CurrencyService::class)->base();
     }
 
     /**
@@ -75,16 +79,6 @@ class Purchase extends Model
     public function exchangeRate(): string
     {
         return ExchangeRates::rateToDecimal($this->exchange_rate);
-    }
-
-    /**
-     * Who it was bought from, when that was worth recording.
-     *
-     * @return BelongsTo<Supplier, $this>
-     */
-    public function supplier(): BelongsTo
-    {
-        return $this->belongsTo(Supplier::class);
     }
 
     /**
@@ -103,14 +97,24 @@ class Purchase extends Model
         return $this->hasMany(PurchaseAdditionalCost::class);
     }
 
-    public function isDraft(): bool
+    /**
+     * Whether the goods on this invoice are in the stock ledger.
+     *
+     * Read off `committed_at` rather than the status, because the two are
+     * settled one after the other and this is the one that says what the
+     * ledger actually holds.
+     */
+    public function isCommitted(): bool
     {
-        return $this->status === PurchaseStatus::Draft;
+        return $this->committed_at !== null;
     }
 
-    public function isPosted(): bool
+    /**
+     * Whether the status it is at says the goods should be in the ledger.
+     */
+    public function shouldHoldStock(): bool
     {
-        return $this->status === PurchaseStatus::Posted;
+        return $this->status->holdsStock();
     }
 
     /**

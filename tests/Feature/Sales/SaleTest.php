@@ -1,10 +1,9 @@
 <?php
 
-use App\Actions\Sales\PostSaleAction;
 use App\Enums\PaymentMethod;
 use App\Enums\SaleStatus;
 use App\Enums\StockMovementType;
-use App\Exceptions\SaleNotPostableException;
+use App\Models\Customer;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleLine;
@@ -22,6 +21,7 @@ beforeEach(function () {
     $this->inventory = app(InventoryService::class);
     $this->onHand = app(StockOnHandQuery::class);
     $this->valuation = app(InventoryValuationQuery::class);
+    $this->customer = Customer::factory()->walkIn()->create();
     $this->product = Product::factory()->create([
         'name' => 'Blackout 117x137',
         'selling_price' => '44.00',
@@ -46,8 +46,12 @@ function stockUp(Product $product, int $quantity, string $unitCost, string $on =
 function salePayload(array $overrides = []): array
 {
     return array_merge([
+        // Every sale names a buyer. Counter trade is the walk-in customer's.
+        'customer_id' => test()->customer->id,
         'sold_on' => '2026-02-01',
+        'status' => SaleStatus::Ordered->value,
         'payment_method' => PaymentMethod::Cash->value,
+        'paid_in_full' => true,
         'notes' => null,
         'lines' => [
             [
@@ -60,23 +64,36 @@ function salePayload(array $overrides = []): array
     ], $overrides);
 }
 
+/** Ring a sale up through the screen and hand back the model. */
+function recordSale(array $overrides = []): Sale
+{
+    test()->post('/sales', salePayload($overrides))->assertSessionHasNoErrors();
+
+    return Sale::query()->latest('id')->firstOrFail();
+}
+
+function moveSaleTo(Sale $sale, SaleStatus $status): void
+{
+    test()->post("/sales/{$sale->id}/status", ['status' => $status->value]);
+}
+
 /*
 |--------------------------------------------------------------------------
-| Posting: stock out, cost in
+| Stock out, cost in
 |--------------------------------------------------------------------------
 */
 
-it('takes stock out and records what it cost', function () {
+it('takes stock out and records what it cost when the sale goes out', function () {
     stockUp($this->product, 10, '18.00');
 
-    $this->post('/sales', salePayload())->assertRedirect();
-    $sale = Sale::query()->firstOrFail();
+    $sale = recordSale();
 
-    $this->post("/sales/{$sale->id}/post")->assertRedirect()->assertSessionHasNoErrors();
+    moveSaleTo($sale, SaleStatus::OnTheWay);
 
     $sale = $sale->fresh()->load('lines.stockMovements.consumptions.batch');
 
-    expect($sale->status)->toBe(SaleStatus::Posted)
+    expect($sale->status)->toBe(SaleStatus::OnTheWay)
+        ->and($sale->committed_at)->not->toBeNull()
         ->and($this->onHand->forProduct($this->product))->toBe(8)
         ->and($sale->total()->toDecimal())->toBe('88.00')
         ->and($sale->costOfGoodsSold()->toDecimal())->toBe('36.00')
@@ -87,59 +104,78 @@ it('costs a sale FIFO across batches', function () {
     stockUp($this->product, 10, '5.00', '2026-01-01');
     stockUp($this->product, 10, '7.00', '2026-01-02');
 
-    $this->post('/sales', salePayload([
+    $sale = recordSale([
+        'status' => SaleStatus::OnTheWay->value,
         'lines' => [[
             'product_id' => $this->product->id,
             'quantity' => 15,
             'unit_price' => '20.00',
             'discount' => '0',
         ]],
-    ]));
-
-    $sale = Sale::query()->firstOrFail();
-    $this->post("/sales/{$sale->id}/post");
+    ]);
 
     // 10 at 5.00 then 5 at 7.00 is 85.00, exactly as the ledger says.
-    expect($sale->fresh()->costOfGoodsSold()->toDecimal())->toBe('85.00')
+    expect($sale->costOfGoodsSold()->toDecimal())->toBe('85.00')
         ->and($this->onHand->forProduct($this->product))->toBe(5)
         ->and($this->valuation->forProduct($this->product)->toDecimal())->toBe('35.00');
 });
 
-it('leaves stock alone until the sale is posted', function () {
+it('leaves stock alone while the sale is only ordered', function () {
     stockUp($this->product, 10, '18.00');
 
-    $this->post('/sales', salePayload());
+    recordSale();
 
     expect($this->onHand->forProduct($this->product))->toBe(10)
         ->and(StockMovement::query()->where('quantity', '<', 0)->count())->toBe(0);
 });
 
-it('reports no cost or profit on a draft', function () {
+it('reports no cost or profit on an order', function () {
     stockUp($this->product, 10, '18.00');
-    $this->post('/sales', salePayload());
 
-    $sale = Sale::query()->firstOrFail();
+    $sale = recordSale();
 
     expect($sale->costOfGoodsSold()->isZero())->toBeTrue()
         ->and($sale->grossProfit()->toDecimal())->toBe('88.00');
 });
 
+it('puts the goods back when a sale is moved back to ordered', function () {
+    stockUp($this->product, 10, '18.00');
+
+    $sale = recordSale(['status' => SaleStatus::OnTheWay->value]);
+
+    moveSaleTo($sale, SaleStatus::Ordered);
+
+    expect($sale->fresh()->status)->toBe(SaleStatus::Ordered)
+        ->and($sale->fresh()->committed_at)->toBeNull()
+        ->and($this->onHand->forProduct($this->product))->toBe(10)
+        // Undone, not offset: no reversing movement is left behind.
+        ->and(StockMovement::query()->where('quantity', '<', 0)->count())->toBe(0);
+});
+
+it('moves nothing when the customer receives goods already sent out', function () {
+    stockUp($this->product, 10, '18.00');
+
+    $sale = recordSale(['status' => SaleStatus::OnTheWay->value]);
+
+    moveSaleTo($sale, SaleStatus::Proceed);
+
+    expect($sale->fresh()->status)->toBe(SaleStatus::Proceed)
+        ->and($this->onHand->forProduct($this->product))->toBe(8)
+        ->and(StockMovement::query()->where('quantity', '<', 0)->count())->toBe(1);
+});
+
 it('takes the discount off the takings but not off the cost', function () {
     stockUp($this->product, 10, '18.00');
 
-    $this->post('/sales', salePayload([
+    $sale = recordSale([
+        'status' => SaleStatus::OnTheWay->value,
         'lines' => [[
             'product_id' => $this->product->id,
             'quantity' => 2,
             'unit_price' => '44.00',
             'discount' => '8.00',
         ]],
-    ]));
-
-    $sale = Sale::query()->firstOrFail();
-    $this->post("/sales/{$sale->id}/post");
-
-    $sale = $sale->fresh();
+    ]);
 
     expect($sale->total()->toDecimal())->toBe('80.00')
         ->and($sale->costOfGoodsSold()->toDecimal())->toBe('36.00')
@@ -149,9 +185,10 @@ it('takes the discount off the takings but not off the cost', function () {
 it('dates the stock movement to the sale, not to today', function () {
     stockUp($this->product, 10, '18.00', '2026-01-01');
 
-    $this->post('/sales', salePayload(['sold_on' => '2026-02-15']));
-    $sale = Sale::query()->firstOrFail();
-    $this->post("/sales/{$sale->id}/post");
+    recordSale([
+        'status' => SaleStatus::OnTheWay->value,
+        'sold_on' => '2026-02-15',
+    ]);
 
     $issue = StockMovement::query()->where('quantity', '<', 0)->firstOrFail();
 
@@ -165,36 +202,34 @@ it('dates the stock movement to the sale, not to today', function () {
 |--------------------------------------------------------------------------
 */
 
-it('refuses to sell more than there is', function () {
+it('refuses to send out more than there is', function () {
     stockUp($this->product, 1, '18.00');
 
-    $this->post('/sales', salePayload());
-    $sale = Sale::query()->firstOrFail();
+    $sale = recordSale();
 
-    $this->post("/sales/{$sale->id}/post")->assertRedirect();
+    moveSaleTo($sale, SaleStatus::OnTheWay);
 
-    expect($sale->fresh()->status)->toBe(SaleStatus::Draft)
+    expect($sale->fresh()->status)->toBe(SaleStatus::Ordered)
         ->and($this->onHand->forProduct($this->product))->toBe(1);
 });
 
-it('posts nothing at all when one line of several is short', function () {
+it('sends nothing at all when one line of several is short', function () {
     $other = Product::factory()->create(['name' => 'Voile Panel 117']);
 
     stockUp($this->product, 10, '18.00');
     stockUp($other, 1, '6.00');
 
-    $this->post('/sales', salePayload([
+    $sale = recordSale([
         'lines' => [
             ['product_id' => $this->product->id, 'quantity' => 2, 'unit_price' => '44.00', 'discount' => '0'],
             ['product_id' => $other->id, 'quantity' => 5, 'unit_price' => '16.00', 'discount' => '0'],
         ],
-    ]));
+    ]);
 
-    $sale = Sale::query()->firstOrFail();
-    $this->post("/sales/{$sale->id}/post");
+    moveSaleTo($sale, SaleStatus::OnTheWay);
 
-    // The good line must not go through on its own.
-    expect($sale->fresh()->status)->toBe(SaleStatus::Draft)
+    // The good line must not go out on its own.
+    expect($sale->fresh()->status)->toBe(SaleStatus::Ordered)
         ->and($this->onHand->forProduct($this->product))->toBe(10)
         ->and($this->onHand->forProduct($other))->toBe(1);
 });
@@ -205,91 +240,68 @@ it('reports every short product at once, not just the first', function () {
     stockUp($this->product, 1, '18.00');
     stockUp($other, 1, '6.00');
 
-    $sale = Sale::query()->create([
-        'number' => Sale::nextNumber(),
-        'sold_on' => '2026-02-01',
-        'status' => SaleStatus::Draft,
-        'payment_method' => PaymentMethod::Cash,
-    ]);
-    $sale->lines()->createMany([
-        ['product_id' => $this->product->id, 'quantity' => 5, 'unit_price' => Money::fromDecimal('44.00'), 'discount' => Money::zero()],
-        ['product_id' => $other->id, 'quantity' => 5, 'unit_price' => Money::fromDecimal('16.00'), 'discount' => Money::zero()],
+    $sale = recordSale([
+        'lines' => [
+            ['product_id' => $this->product->id, 'quantity' => 5, 'unit_price' => '44.00', 'discount' => '0'],
+            ['product_id' => $other->id, 'quantity' => 5, 'unit_price' => '16.00', 'discount' => '0'],
+        ],
     ]);
 
-    try {
-        app(PostSaleAction::class)->handle($sale->refresh());
-        $this->fail('Expected the sale to be refused.');
-    } catch (SaleNotPostableException $exception) {
-        expect($exception->shortages)->toHaveCount(2)
-            ->and($exception->getMessage())->toContain('Blackout 117x137')
-            ->and($exception->getMessage())->toContain('Voile Panel');
-    }
+    // Both shortages in one message: fixing them one round trip at a time is
+    // how somebody ends up short on the third product too.
+    $this->post("/sales/{$sale->id}/status", ['status' => SaleStatus::OnTheWay->value])
+        ->assertInertiaFlash('toast', [
+            'type' => 'error',
+            'message' => 'Not enough stock: Blackout 117x137 needs 5, has 1; Voile Panel needs 5, has 1.',
+        ]);
 });
 
 it('refuses a sale for stock that had not arrived yet', function () {
     stockUp($this->product, 10, '18.00', '2026-03-01');
 
-    $this->post('/sales', salePayload(['sold_on' => '2026-02-01']));
-    $sale = Sale::query()->firstOrFail();
+    $sale = recordSale(['sold_on' => '2026-02-01']);
 
-    $this->post("/sales/{$sale->id}/post");
+    moveSaleTo($sale, SaleStatus::OnTheWay);
 
-    expect($sale->fresh()->status)->toBe(SaleStatus::Draft);
+    expect($sale->fresh()->status)->toBe(SaleStatus::Ordered);
 });
 
 /*
 |--------------------------------------------------------------------------
-| Status machine
+| Correcting and deleting
 |--------------------------------------------------------------------------
 */
 
-it('refuses to post the same sale twice', function () {
+it('re-issues the stock when a sale that has gone out is edited', function () {
     stockUp($this->product, 10, '18.00');
 
-    $this->post('/sales', salePayload());
-    $sale = Sale::query()->firstOrFail();
-
-    $this->post("/sales/{$sale->id}/post");
-    $this->post("/sales/{$sale->id}/post")->assertRedirect();
-
-    expect(StockMovement::query()->where('quantity', '<', 0)->count())->toBe(1)
-        ->and($this->onHand->forProduct($this->product))->toBe(8);
-});
-
-it('refuses to edit or delete a posted sale', function () {
-    stockUp($this->product, 10, '18.00');
-
-    $this->post('/sales', salePayload());
-    $sale = Sale::query()->firstOrFail();
-    $this->post("/sales/{$sale->id}/post");
+    $sale = recordSale(['status' => SaleStatus::OnTheWay->value]);
 
     $this->put("/sales/{$sale->id}", salePayload([
-        'lines' => [['product_id' => $this->product->id, 'quantity' => 9, 'unit_price' => '1.00', 'discount' => '0']],
-    ]))->assertRedirect("/sales/{$sale->id}");
+        'status' => SaleStatus::OnTheWay->value,
+        'lines' => [[
+            'product_id' => $this->product->id,
+            'quantity' => 5,
+            'unit_price' => '44.00',
+            'discount' => '0',
+        ]],
+    ]))->assertSessionHasNoErrors();
 
-    $this->delete("/sales/{$sale->id}")->assertRedirect("/sales/{$sale->id}");
-
-    expect($sale->fresh()->lines->first()->quantity)->toBe(2)
-        ->and(Sale::query()->count())->toBe(1);
+    expect($sale->fresh()->lines->first()->quantity)->toBe(5)
+        ->and($this->onHand->forProduct($this->product))->toBe(5);
 });
 
-it('sends the edit screen for a posted sale to the read-only view', function () {
+it('deletes a sale and puts its stock back', function () {
     stockUp($this->product, 10, '18.00');
-    $this->post('/sales', salePayload());
-    $sale = Sale::query()->firstOrFail();
-    $this->post("/sales/{$sale->id}/post");
 
-    $this->get("/sales/{$sale->id}/edit")->assertRedirect("/sales/{$sale->id}");
-});
-
-it('deletes a draft', function () {
-    $this->post('/sales', salePayload());
-    $sale = Sale::query()->firstOrFail();
+    $sale = recordSale(['status' => SaleStatus::OnTheWay->value]);
 
     $this->delete("/sales/{$sale->id}")->assertRedirect('/sales');
 
     expect(Sale::query()->count())->toBe(0)
-        ->and(SaleLine::query()->count())->toBe(0);
+        ->and(SaleLine::query()->count())->toBe(0)
+        ->and($this->onHand->forProduct($this->product))->toBe(10)
+        ->and(StockMovement::query()->where('quantity', '<', 0)->count())->toBe(0);
 });
 
 /*
@@ -300,7 +312,7 @@ it('deletes a draft', function () {
 
 it('lists sales with their total', function () {
     stockUp($this->product, 10, '18.00');
-    $this->post('/sales', salePayload());
+    $sale = recordSale();
 
     $this->get('/sales')
         ->assertOk()
@@ -308,35 +320,50 @@ it('lists sales with their total', function () {
             ->component('sales/index')
             ->has('rows.data', 1)
             ->where('rows.data.0.total', 8800)
-            ->where('rows.data.0.status', 'draft')
+            ->where('rows.data.0.status', 'ordered')
+            // The drawer is on this screen, so what it needs travels with it.
+            ->has('products')
+            ->has('customers')
+            ->has('statuses', 3)
+            ->where('nextNumber', 'SAL-00002')
         );
+
+    expect($sale->number)->toBe('SAL-00001');
 });
 
-it('shows a posted sale with per-line profit', function () {
+it('shows a sale that has gone out with what it cost and made', function () {
     stockUp($this->product, 10, '18.00');
-    $this->post('/sales', salePayload());
-    $sale = Sale::query()->firstOrFail();
-    $this->post("/sales/{$sale->id}/post");
+    $sale = recordSale(['status' => SaleStatus::OnTheWay->value]);
 
     $this->get("/sales/{$sale->id}")
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('sales/show')
             ->where('sale.total', 8800)
+            ->where('sale.total_quantity', 2)
             ->where('sale.cost_of_goods_sold', 3600)
             ->where('sale.gross_profit', 5200)
-            ->where('sale.lines.0.cost_of_goods_sold', 3600)
-            ->where('sale.lines.0.gross_profit', 5200)
+            ->where('sale.lines.0.net_total', 8800)
+            // The edit drawer opens from this page, so it carries its options.
+            ->has('products')
+            ->has('statuses', 3)
         );
+});
+
+it('has no create or edit page', function () {
+    $sale = recordSale();
+
+    $this->get('/sales/create')->assertNotFound();
+    $this->get("/sales/{$sale->id}/edit")->assertNotFound();
 });
 
 it('offers products with what is on hand, so the till can warn', function () {
     stockUp($this->product, 7, '18.00');
 
-    $this->get('/sales/create')
+    $this->get('/sales')
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->component('sales/create')
+            ->component('sales/index')
             ->where('products.0.on_hand', 7)
             ->where('products.0.name', 'Blackout 117x137')
             ->has('paymentMethods', 3)
@@ -365,18 +392,40 @@ it('refuses a price with more precision than a cent', function () {
     ]))->assertSessionHasErrors('lines.0.unit_price');
 });
 
+it('refuses an unknown status', function () {
+    $sale = recordSale();
+
+    $this->post("/sales/{$sale->id}/status", ['status' => 'sold-ish'])
+        ->assertSessionHasErrors('status');
+
+    expect($sale->fresh()->status)->toBe(SaleStatus::Ordered);
+});
+
 it('hands each sale its own number', function () {
-    $this->post('/sales', salePayload());
-    $this->post('/sales', salePayload());
+    recordSale();
+    recordSale();
 
     expect(Sale::query()->pluck('number')->all())->toBe(['SAL-00001', 'SAL-00002']);
 });
 
+it('filters sales by status', function () {
+    stockUp($this->product, 10, '18.00');
+
+    $ordered = recordSale();
+    $sent = recordSale(['status' => SaleStatus::OnTheWay->value]);
+
+    $this->get('/sales?status=on_the_way')
+        ->assertInertia(fn ($page) => $page->has('rows.data', 1)
+            ->where('rows.data.0.number', $sent->number));
+
+    $this->get('/sales?status=ordered')
+        ->assertInertia(fn ($page) => $page->has('rows.data', 1)
+            ->where('rows.data.0.number', $ordered->number));
+});
+
 it('refuses to delete a product that has been sold', function () {
     stockUp($this->product, 10, '18.00');
-    $this->post('/sales', salePayload());
-    $sale = Sale::query()->firstOrFail();
-    $this->post("/sales/{$sale->id}/post");
+    recordSale(['status' => SaleStatus::OnTheWay->value]);
 
     expect(fn () => $this->product->delete())
         ->toThrow(QueryException::class);

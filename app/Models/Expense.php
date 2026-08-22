@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\PaymentMethod;
+use App\Services\CurrencyService;
 use App\Support\ExchangeRates;
 use App\Support\Money;
 use Database\Factories\ExpenseFactory;
@@ -24,12 +25,14 @@ use Illuminate\Support\Carbon;
  * @property Money $amount
  * @property Carbon $spent_on
  * @property PaymentMethod $payment_method
+ * @property int|null $bank_id
  * @property string $currency
  * @property int $exchange_rate
  * @property string|null $notes
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read ExpenseCategory $category
+ * @property-read Bank|null $bank
  */
 #[Fillable([
     'expense_category_id',
@@ -37,6 +40,7 @@ use Illuminate\Support\Carbon;
     'amount',
     'spent_on',
     'payment_method',
+    'bank_id',
     'currency',
     'exchange_rate',
     'notes',
@@ -65,7 +69,7 @@ class Expense extends Model
      */
     public function isForeignCurrency(): bool
     {
-        return $this->currency !== config('money.currency');
+        return $this->currency !== app(CurrencyService::class)->base();
     }
 
     /**
@@ -82,5 +86,16 @@ class Expense extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(ExpenseCategory::class, 'expense_category_id');
+    }
+
+    /**
+     * The account this was paid out of, on a card or transfer. Null on cash, and
+     * on anything recorded before banks existed.
+     *
+     * @return BelongsTo<Bank, $this>
+     */
+    public function bank(): BelongsTo
+    {
+        return $this->belongsTo(Bank::class);
     }
 }

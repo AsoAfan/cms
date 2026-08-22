@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Customer;
 use App\Models\Supplier;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -193,7 +194,35 @@ it('keeps guests out', function () {
     $this->post('/suppliers', supplierPayload())->assertRedirect('/login');
 });
 
-it('has no customers section', function () {
-    $this->get('/customers')->assertNotFound();
-    $this->post('/customers', [])->assertNotFound();
+/**
+ * Customers used to be asserted absent here. They exist now — a sale belongs to
+ * one, and a customer can carry a loan — so this asserts the two counterparty
+ * sections are separate rather than that one of them is missing.
+ */
+it('keeps customers as their own section, apart from suppliers', function () {
+    $this->get('/customers')->assertOk();
+
+    // A supplier is not a customer: neither list shows the other's rows.
+    Supplier::factory()->create(['name' => 'Northwind Textiles']);
+    Customer::factory()->create(['name' => 'Ahmed Karim']);
+
+    $this->get('/suppliers')->assertInertia(fn ($page) => $page
+        ->has('rows.data', 1)
+        ->where('rows.data.0.name', 'Northwind Textiles'));
+
+    $this->get('/customers')->assertInertia(fn ($page) => $page
+        ->has('rows.data', 1)
+        ->where('rows.data.0.name', 'Ahmed Karim'));
+});
+
+it('gives suppliers no statement screen, unlike customers', function () {
+    $supplier = Supplier::factory()->create();
+    $customer = Customer::factory()->create();
+
+    // A supplier has an edit screen and nothing else; `show` is not routed, so
+    // the bare id is a method mismatch rather than a page.
+    $this->get("/suppliers/{$supplier->id}")->assertStatus(405);
+
+    // A customer's is their account: what they bought, paid, and still owe.
+    $this->get("/customers/{$customer->id}")->assertOk();
 });

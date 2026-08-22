@@ -2,22 +2,31 @@
 
 namespace App\Services;
 
+use App\Exceptions\CurrencyInUseException;
+use App\Models\Currency;
 use App\Models\ExchangeRate;
+use App\Models\Expense;
+use App\Models\Purchase;
+use App\Models\Sale;
 use App\Support\ExchangeRates;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Everything the application knows about currency, in one place.
  *
- * The base currency is the only one anything is stored in. This service exists
- * to answer two questions: which currencies may an amount be typed or viewed in,
- * and what were they worth on a given date. Conversion itself belongs to the
- * {@see ExchangeRates} value object this hands out.
+ * Which currencies exist, and which one the books are kept in, are rows in
+ * `currencies` rather than lines in a config file — they are facts about a
+ * business, and they change when a supplier starts invoicing in something new.
  *
- * Rates are read from the `exchange_rates` table and never from the network — a
- * page request must not depend on an external service being up. Filling that
- * table is `SyncExchangeRatesAction`'s job, on a schedule. Nobody types a rate
- * in: there is no screen for it and no method here that takes one from a user.
+ * Exactly one currency is the base, and every monetary column in the
+ * application is minor units of it. Rates are entered by hand on
+ * Settings → Exchange rates; nothing here reaches for the network, because the
+ * official rate and the rate a business actually trades at are rarely the same
+ * number and it is the second one that costs an invoice correctly.
+ *
+ * Conversion itself belongs to the {@see ExchangeRates} value object this hands
+ * out, which is framework-free and unit-testable without a database.
  */
 final class CurrencyService
 {
@@ -25,15 +34,39 @@ final class CurrencyService
      * Rates already looked up in this request, keyed by date.
      *
      * A purchase form posts many amounts on one date, and every one of them
-     * would otherwise repeat the same two queries.
+     * would otherwise repeat the same queries. Registered as a singleton in
+     * `AppServiceProvider` so the cache lasts the request.
      *
      * @var array<string, ExchangeRates>
      */
-    private array $memoised = [];
+    private array $memoisedRates = [];
 
+    /**
+     * @var array<string, Currency>|null
+     */
+    private ?array $memoisedCurrencies = null;
+
+    /**
+     * The currency the books are kept in.
+     *
+     * Falls back to `config('money.currency')` only before the first currency
+     * row exists — during a fresh migration, say, when a document's column
+     * default is being resolved and the seeder has not run yet.
+     */
     public function base(): string
     {
+        foreach ($this->all() as $currency) {
+            if ($currency->is_base) {
+                return $currency->code;
+            }
+        }
+
         return strtoupper((string) config('money.currency'));
+    }
+
+    public function baseCurrency(): ?Currency
+    {
+        return $this->all()[$this->base()] ?? null;
     }
 
     public function locale(): string
@@ -42,26 +75,44 @@ final class CurrencyService
     }
 
     /**
-     * Every configured currency's display metadata, keyed by code.
+     * Every currency on record, keyed by code, base first.
      *
-     * @return array<string, array{name: string, symbol: string, fraction_digits: int}>
+     * @return array<string, Currency>
      */
-    public function currencies(): array
+    public function all(): array
     {
-        /** @var array<string, array{name: string, symbol: string, fraction_digits: int}> $configured */
-        $configured = config('money.currencies', []);
+        if ($this->memoisedCurrencies !== null) {
+            return $this->memoisedCurrencies;
+        }
 
-        return $configured;
+        $currencies = Currency::query()
+            ->orderByDesc('is_base')
+            ->orderBy('code')
+            ->get()
+            ->keyBy('code')
+            ->all();
+
+        /** @var array<string, Currency> $currencies */
+        return $this->memoisedCurrencies = $currencies;
+    }
+
+    /**
+     * Anything already looked up is thrown away, because the answers have
+     * changed. Called by every write below.
+     */
+    public function forget(): void
+    {
+        $this->memoisedCurrencies = null;
+        $this->memoisedRates = [];
     }
 
     /**
      * The currencies an amount may actually be entered in on a given date: the
-     * base currency, plus any with a rate on record.
+     * base currency, plus any with a rate in force.
      *
-     * Form Requests validate against this, so a currency the sync has never
-     * fetched a rate for can never be submitted and
-     * `MissingExchangeRateException` stays an internal guard rather than a 500
-     * a user can trigger.
+     * Form Requests validate against this, so a currency nobody has recorded a
+     * rate for can never be submitted and `MissingExchangeRateException` stays
+     * an internal guard rather than a 500 a user can trigger.
      *
      * @return list<string>
      */
@@ -75,13 +126,13 @@ final class CurrencyService
      *
      * "In force" means the newest rate on or before that date, so a document
      * dated last month converts at last month's rate rather than today's, and a
-     * day the sync did not run carries the previous day's figure forward.
+     * rate stands until a newer one is recorded.
      */
     public function ratesOn(?string $on = null): ExchangeRates
     {
-        $on = $on === null ? today()->toDateString() : Carbon::parse($on)->toDateString();
+        $on = $this->asDate($on);
 
-        return $this->memoised[$on] ??= ExchangeRates::for(
+        return $this->memoisedRates[$on] ??= ExchangeRates::for(
             base: $this->base(),
             rates: $this->rateRowsOn($on),
             on: $on,
@@ -94,11 +145,9 @@ final class CurrencyService
      */
     public function latestRowOn(string $currency, ?string $on = null): ?ExchangeRate
     {
-        $on = $on === null ? today()->toDateString() : Carbon::parse($on)->toDateString();
-
         return ExchangeRate::query()
             ->where('currency', strtoupper($currency))
-            ->whereDate('effective_on', '<=', $on)
+            ->whereDate('effective_on', '<=', $this->asDate($on))
             ->orderByDesc('effective_on')
             ->first();
     }
@@ -115,26 +164,22 @@ final class CurrencyService
         $today = today()->toDateString();
         $options = [];
 
-        foreach ($this->currencies() as $code => $meta) {
-            $code = strtoupper((string) $code);
-
-            // The base currency first: it is the default everywhere, and a list
-            // that opens on it reads as "dinars, or one of these". It is also
-            // its own unit, so it has no rate and needs none.
-            if ($code === $base) {
-                array_unshift($options, [
-                    'code' => $code,
-                    'name' => $meta['name'],
-                    'symbol' => $meta['symbol'],
-                    'fraction_digits' => $meta['fraction_digits'],
+        foreach ($this->all() as $currency) {
+            if ($currency->code === $base) {
+                // The base is its own unit, so it has no rate and needs none.
+                $options[] = [
+                    'code' => $currency->code,
+                    'name' => $currency->name,
+                    'symbol' => $currency->symbol,
+                    'fraction_digits' => $currency->fraction_digits,
                     'rate' => ExchangeRates::SCALE,
                     'rate_on' => null,
-                ]);
+                ];
 
                 continue;
             }
 
-            $row = $this->latestRowOn($code, $today);
+            $row = $this->latestRowOn($currency->code, $today);
 
             // A currency with no rate on record is not on offer. Showing it
             // would invite someone to type a price nothing could convert.
@@ -143,10 +188,10 @@ final class CurrencyService
             }
 
             $options[] = [
-                'code' => $code,
-                'name' => $meta['name'],
-                'symbol' => $meta['symbol'],
-                'fraction_digits' => $meta['fraction_digits'],
+                'code' => $currency->code,
+                'name' => $currency->name,
+                'symbol' => $currency->symbol,
+                'fraction_digits' => $currency->fraction_digits,
                 'rate' => $row->rate,
                 'rate_on' => $row->effective_on->toDateString(),
             ];
@@ -156,22 +201,22 @@ final class CurrencyService
     }
 
     /**
-     * Write a fetched rate. Called by `SyncExchangeRatesAction` and by nothing
-     * else — the argument is a decimal string because that is what the feed's
-     * re-based figure is formatted to.
+     * Record what a currency is worth in the base currency, from a date.
+     *
+     * The rate is a decimal string as it reads on the form: "1320.5".
      */
     public function record(string $currency, string $rate, string $effectiveOn): ExchangeRate
     {
-        $this->memoised = [];
+        $this->forget();
 
         $currency = strtoupper($currency);
-        $effectiveOn = Carbon::parse($effectiveOn)->toDateString();
+        $effectiveOn = $this->asDate($effectiveOn);
         $rate = ExchangeRates::rateFromDecimal($rate);
 
         // Deliberately not `updateOrCreate`: its lookup would compare
         // `effective_on = '2026-08-08'` against the stored
-        // '2026-08-08 00:00:00' and never match, so today's rate would be
-        // inserted again every run until the unique index refused it.
+        // '2026-08-08 00:00:00' and never match, so a rate would be inserted
+        // again on every save until the unique index refused it.
         $existing = ExchangeRate::query()
             ->where('currency', $currency)
             ->whereDate('effective_on', $effectiveOn)
@@ -191,28 +236,137 @@ final class CurrencyService
     }
 
     /**
+     * Add a currency this business deals in.
+     */
+    public function add(string $code, string $name, string $symbol, int $fractionDigits): Currency
+    {
+        $this->forget();
+
+        return Currency::query()->create([
+            'code' => strtoupper($code),
+            'name' => $name,
+            'symbol' => $symbol,
+            'fraction_digits' => $fractionDigits,
+            // The very first currency is the base by default: books have to be
+            // kept in something.
+            'is_base' => Currency::query()->count() === 0,
+        ]);
+    }
+
+    /**
+     * Move the base currency.
+     *
+     * This re-denominates the books. Every stored amount is minor units of the
+     * base, and each was recorded at a rate that was current when it happened —
+     * so there is no single rate that could restate the history correctly, and
+     * converting at today's would quietly rewrite what past invoices cost.
+     *
+     * It is therefore only allowed while there is no money on record. After
+     * that the answer is a new set of books, not a setting.
+     *
+     * Rates go with it: they were quotes against the old base and mean nothing
+     * against the new one.
+     *
+     * @throws CurrencyInUseException
+     */
+    public function makeBase(Currency $currency): void
+    {
+        if ($currency->is_base) {
+            return;
+        }
+
+        if ($this->hasRecordedMoney()) {
+            throw CurrencyInUseException::cannotChangeBase($this->base());
+        }
+
+        $this->forget();
+
+        DB::transaction(function () use ($currency): void {
+            Currency::query()->where('is_base', true)->update(['is_base' => false]);
+            $currency->update(['is_base' => true]);
+
+            // Every rate quoted the old base. None of them is true of the new
+            // one, and a stale rate is worse than a missing one.
+            ExchangeRate::query()->delete();
+        });
+    }
+
+    /**
+     * Remove a currency, and every rate quoted for it.
+     *
+     * @throws CurrencyInUseException
+     */
+    public function remove(Currency $currency): void
+    {
+        if ($currency->is_base) {
+            throw CurrencyInUseException::isBase($currency->code);
+        }
+
+        if ($this->isOnADocument($currency->code)) {
+            throw CurrencyInUseException::isOnADocument($currency->code);
+        }
+
+        $this->forget();
+
+        // Rates cascade with it — see the exchange_rates migration.
+        $currency->delete();
+    }
+
+    /**
+     * Whether anything financial has been recorded yet.
+     *
+     * Purchases, sales and expenses are the three documents that carry an
+     * amount. If none exists, the books are empty and the base is still a
+     * setup decision rather than a restatement.
+     */
+    public function hasRecordedMoney(): bool
+    {
+        return Purchase::query()->exists()
+            || Sale::query()->exists()
+            || Expense::query()->exists();
+    }
+
+    /**
+     * Whether any document was written in this currency.
+     */
+    public function isOnADocument(string $code): bool
+    {
+        $code = strtoupper($code);
+
+        return Purchase::query()->where('currency', $code)->exists()
+            || Sale::query()->where('currency', $code)->exists()
+            || Expense::query()->where('currency', $code)->exists();
+    }
+
+    /**
      * The scaled rate for each foreign currency in force on the given date.
      *
      * @return array<string, int>
      */
     private function rateRowsOn(string $on): array
     {
+        $base = $this->base();
         $rates = [];
 
-        foreach (array_keys($this->currencies()) as $currency) {
-            $currency = strtoupper((string) $currency);
-
-            if ($currency === $this->base()) {
+        foreach ($this->all() as $currency) {
+            if ($currency->code === $base) {
                 continue;
             }
 
-            $row = $this->latestRowOn($currency, $on);
+            $row = $this->latestRowOn($currency->code, $on);
 
             if ($row !== null) {
-                $rates[$currency] = $row->rate;
+                $rates[$currency->code] = $row->rate;
             }
         }
 
         return $rates;
+    }
+
+    private function asDate(?string $on): string
+    {
+        return $on === null
+            ? today()->toDateString()
+            : Carbon::parse($on)->toDateString();
     }
 }

@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\PaymentMethod;
+use App\Models\Bank;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\StockMovement;
@@ -11,6 +12,8 @@ use Illuminate\Support\Facades\DB;
 beforeEach(function () {
     $this->actingAs(User::factory()->create());
     $this->category = ExpenseCategory::factory()->create(['name' => 'Rent']);
+    // The rent goes out by transfer, and a transfer names the account it left.
+    $this->bank = Bank::factory()->create(['name' => 'Kurdistan International Bank']);
 });
 
 /**
@@ -25,6 +28,7 @@ function expensePayload(array $overrides = []): array
         'amount' => '750.00',
         'spent_on' => '2026-02-01',
         'payment_method' => PaymentMethod::Transfer->value,
+        'bank_id' => test()->bank->id,
         'notes' => 'Paid to the landlord.',
     ], $overrides);
 }

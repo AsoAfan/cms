@@ -39,10 +39,13 @@ export default function Dashboard({
     cashFlow,
     previous,
     recent,
+    owed,
 }: PeriodProps & {
     cashFlow: CashFlow;
     previous: CashFlow;
     recent: Activity;
+    /** What customers owe today — see `CustomerBalanceQuery`. */
+    owed: number;
 }) {
     const [tab, setTab] = useState<ActivityTab>('all');
 
@@ -94,10 +97,10 @@ export default function Dashboard({
                         <EmptyState
                             icon={LineChart}
                             title="Nothing to show yet"
-                            description="Figures appear once you post a purchase and make a sale."
+                            description="Figures appear once a purchase arrives and something sells."
                             action={
                                 <Button
-                                    render={<Link href={purchases.create()} />}
+                                    render={<Link href={purchases.index()} />}
                                 >
                                     Record a purchase
                                 </Button>
@@ -107,13 +110,18 @@ export default function Dashboard({
                 </Card>
             ) : (
                 <>
-                    <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         <StatTile
                             label="Income"
                             value={cashFlow.income}
                             money
                             previous={previous.income}
-                            hint="Taken on posted sales"
+                            hint={
+                                <span>
+                                    <MoneyDisplay amount={cashFlow.collected} />{' '}
+                                    of it collected
+                                </span>
+                            }
                         />
                         <StatTile
                             label="Outcome"
@@ -137,14 +145,27 @@ export default function Dashboard({
                                 </span>
                             }
                         />
+                        {/* A position, not a flow: what is unpaid today, whatever
+                            window the other three are showing. No comparison
+                            figure for the same reason. */}
+                        <StatTile
+                            label="Owed to you"
+                            value={owed}
+                            money
+                            hint={
+                                owed === 0
+                                    ? 'Nobody owes anything'
+                                    : 'Out on customer loans'
+                            }
+                        />
                     </div>
 
                     <Card>
                         <CardHeader>
                             <CardTitle>Recent activity</CardTitle>
                             <CardDescription>
-                                The latest documents of each kind, drafts
-                                included.
+                                The latest documents of each kind, including
+                                what is still on its way.
                             </CardDescription>
                             <CardAction>
                                 <Button

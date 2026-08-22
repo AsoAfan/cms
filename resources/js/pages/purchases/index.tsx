@@ -1,38 +1,52 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { Plus, ShoppingCart } from 'lucide-react';
+import { useState } from 'react';
 
 import { DataTable } from '@/components/data-table';
 import type { Column } from '@/components/data-table';
+import { StatusBadge } from '@/components/document-status';
 import { EmptyState } from '@/components/empty-state';
 import { MoneyDisplay } from '@/components/money-display';
+import { OptionSelect } from '@/components/option-select';
 import { PageHeader } from '@/components/page-header';
-import { Badge } from '@/components/ui/badge';
+import { PurchaseDrawer } from '@/components/purchases/purchase-drawer';
 import { Button } from '@/components/ui/button';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
-import { create, edit, show } from '@/routes/purchases';
+import { show } from '@/routes/purchases';
 import type { BreadcrumbItem, Paginated, TableState } from '@/types';
-import type { PurchaseListRow, SupplierOption } from '@/types/purchasing';
+import type {
+    AllocationMethodOption,
+    ProductOption,
+    PurchaseListRow,
+    PurchaseStatusOption,
+} from '@/types/purchasing';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Purchases' }];
 
 const ANY = 'any';
 
+/**
+ * The list is the whole purchases screen. Writing an invoice rises from the
+ * bottom of it, as adding a product does on the catalogue, and a row opens the
+ * invoice itself.
+ */
 export default function PurchasesIndex({
     rows,
     table,
-    suppliers,
+    nextNumber,
+    products,
+    allocationMethods,
+    statuses,
 }: {
     rows: Paginated<PurchaseListRow>;
     table: TableState;
-    suppliers: SupplierOption[];
+    nextNumber: string;
+    products: ProductOption[];
+    allocationMethods: AllocationMethodOption[];
+    statuses: PurchaseStatusOption[];
 }) {
+    const [creating, setCreating] = useState(false);
+
     function applyFilter(key: string, value: string) {
         const url = new URL(window.location.href);
 
@@ -54,31 +68,19 @@ export default function PurchasesIndex({
     const columns: Column<PurchaseListRow>[] = [
         {
             key: 'number',
-            header: 'Number',
+            header: 'Invoice',
             sortable: true,
             cell: (row) => (
-                <Link
-                    href={row.status === 'posted' ? show(row.id) : edit(row.id)}
-                    className="font-mono font-medium hover:underline"
-                >
-                    {row.number}
-                </Link>
+                <span className="font-mono font-medium">{row.number}</span>
             ),
-        },
-        {
-            key: 'supplier',
-            header: 'Supplier',
-            cell: (row) =>
-                row.supplier ?? (
-                    <span className="text-muted-foreground">—</span>
-                ),
         },
         {
             key: 'invoiced_on',
             header: 'Date',
             sortable: true,
-            hideOnMobile: true,
-            cell: (row) => row.invoiced_on,
+            cell: (row) => (
+                <span className="text-muted-foreground">{row.invoiced_on}</span>
+            ),
         },
         {
             key: 'lines_count',
@@ -100,14 +102,20 @@ export default function PurchasesIndex({
             header: 'Status',
             sortable: true,
             align: 'right',
-            cell: (row) =>
-                row.status === 'posted' ? (
-                    <Badge variant="secondary">Posted</Badge>
-                ) : (
-                    <Badge variant="outline">Draft</Badge>
-                ),
+            cell: (row) => (
+                <div className="flex justify-end">
+                    <StatusBadge status={row.status} statuses={statuses} />
+                </div>
+            ),
         },
     ];
+
+    const newButton = (
+        <Button onClick={() => setCreating(true)}>
+            <Plus data-icon="inline-start" />
+            New purchase
+        </Button>
+    );
 
     return (
         <>
@@ -115,13 +123,8 @@ export default function PurchasesIndex({
 
             <PageHeader
                 title="Purchases"
-                description="What you bought, and what it cost once freight is counted."
-                actions={
-                    <Button render={<Link href={create()} />}>
-                        <Plus data-icon="inline-start" />
-                        New purchase
-                    </Button>
-                }
+                description="What you ordered, what is on its way, and what has arrived."
+                actions={newButton}
             />
 
             <DataTable
@@ -130,57 +133,19 @@ export default function PurchasesIndex({
                 state={table}
                 getRowKey={(row) => row.id}
                 searchPlaceholder="Search number or notes"
+                onRowClick={(row) => router.visit(show.url(row.id))}
                 toolbar={
-                    <>
-                        <Select
-                            value={table.filters.status ?? ANY}
-                            onValueChange={(value) =>
-                                applyFilter('status', String(value))
-                            }
-                        >
-                            <SelectTrigger
-                                className="w-32"
-                                aria-label="Filter by status"
-                            >
-                                <SelectValue placeholder="Status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value={ANY}>Any status</SelectItem>
-                                <SelectItem value="draft">Draft</SelectItem>
-                                <SelectItem value="posted">Posted</SelectItem>
-                            </SelectContent>
-                        </Select>
-
-                        <Select
-                            value={table.filters.supplier_id ?? ANY}
-                            onValueChange={(value) =>
-                                applyFilter('supplier_id', String(value))
-                            }
-                        >
-                            <SelectTrigger
-                                className="w-44"
-                                aria-label="Filter by supplier"
-                            >
-                                <SelectValue placeholder="Supplier" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value={ANY}>
-                                    All suppliers
-                                </SelectItem>
-                                <SelectItem value="none">
-                                    No supplier
-                                </SelectItem>
-                                {suppliers.map((supplier) => (
-                                    <SelectItem
-                                        key={supplier.id}
-                                        value={String(supplier.id)}
-                                    >
-                                        {supplier.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </>
+                    <OptionSelect
+                        className="w-36"
+                        aria-label="Filter by status"
+                        value={table.filters.status ?? ANY}
+                        options={[
+                            { value: ANY, label: 'Any status' },
+                            ...statuses,
+                        ]}
+                        onChange={(value) => applyFilter('status', value)}
+                        placeholder="Status"
+                    />
                 }
                 empty={
                     <EmptyState
@@ -191,14 +156,18 @@ export default function PurchasesIndex({
                                 ? `Nothing matches "${table.search}".`
                                 : 'Record what you bought to bring stock in.'
                         }
-                        action={
-                            <Button render={<Link href={create()} />}>
-                                <Plus data-icon="inline-start" />
-                                New purchase
-                            </Button>
-                        }
+                        action={newButton}
                     />
                 }
+            />
+
+            <PurchaseDrawer
+                open={creating}
+                onOpenChange={setCreating}
+                products={products}
+                allocationMethods={allocationMethods}
+                statuses={statuses}
+                nextNumber={nextNumber}
             />
         </>
     );

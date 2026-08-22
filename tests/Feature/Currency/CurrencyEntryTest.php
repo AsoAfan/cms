@@ -2,6 +2,9 @@
 
 use App\Enums\CostAllocationMethod;
 use App\Enums\PaymentMethod;
+use App\Enums\PurchaseStatus;
+use App\Enums\SaleStatus;
+use App\Models\Customer;
 use App\Models\ExchangeRate;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
@@ -39,6 +42,7 @@ it('converts a purchase typed in dollars into dinars', function () {
     $this->post('/purchases', [
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
+        'status' => PurchaseStatus::Ordered->value,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[
@@ -63,6 +67,7 @@ it('records the base currency and a rate of one when nothing is converted', func
     $this->post('/purchases', [
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
+        'status' => PurchaseStatus::Ordered->value,
         'notes' => null,
         'lines' => [[
             'product_id' => $this->product->id,
@@ -87,6 +92,7 @@ it('converts each amount by its own currency, not the document header', function
     $this->post('/purchases', [
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
+        'status' => PurchaseStatus::Ordered->value,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[
@@ -111,10 +117,11 @@ it('converts each amount by its own currency, not the document header', function
         ->and($purchase->additionalCosts->first()->amount->toDecimal())->toBe('30000.00');
 });
 
-it('puts the converted cost on the shelf when the purchase posts', function () {
+it('puts the converted cost on the shelf when the goods arrive', function () {
     $this->post('/purchases', [
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
+        'status' => PurchaseStatus::Proceed->value,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[
@@ -124,11 +131,7 @@ it('puts the converted cost on the shelf when the purchase posts', function () {
             'discount' => '0',
         ]],
         'additional_costs' => [],
-    ]);
-
-    $purchase = Purchase::query()->firstOrFail();
-
-    $this->post("/purchases/{$purchase->id}/post")->assertSessionHasNoErrors();
+    ])->assertSessionHasNoErrors();
 
     // The ledger never learns a currency existed: it holds dinars, like
     // everything else.
@@ -139,7 +142,10 @@ it('puts the converted cost on the shelf when the purchase posts', function () {
 it('converts a sale paid in dollars and records that it was', function () {
     $this->post('/sales', [
         'sold_on' => '2026-02-01',
+        'customer_id' => Customer::walkIn()->id,
+        'status' => SaleStatus::Ordered->value,
         'payment_method' => PaymentMethod::Cash->value,
+        'paid_in_full' => true,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[
@@ -203,6 +209,7 @@ it('converts a back-dated invoice at the rate in force on its own date', functio
     $this->post('/purchases', [
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
+        'status' => PurchaseStatus::Ordered->value,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[
@@ -226,6 +233,7 @@ it('uses the newer rate for a document dated after it', function () {
     $this->post('/purchases', [
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-03-15',
+        'status' => PurchaseStatus::Ordered->value,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[
@@ -245,6 +253,7 @@ it('refuses a currency nobody has recorded a rate for', function () {
     $this->post('/purchases', [
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
+        'status' => PurchaseStatus::Ordered->value,
         'notes' => null,
         'currency' => 'EUR',
         'lines' => [[
@@ -307,6 +316,7 @@ it('still validates the amount as typed, in its own currency', function () {
     $this->post('/purchases', [
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
+        'status' => PurchaseStatus::Ordered->value,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[

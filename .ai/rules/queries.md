@@ -1,6 +1,8 @@
 ---
 paths:
   - 'app/Queries/**'
+  - app/Queries/CustomerBalanceQuery.php
+  - app/Queries/CashFlowQuery.php
 ---
 
 # Queries
@@ -33,3 +35,17 @@ This is NOT a return of the deleted report queries — there is still no gross p
 Totals are summed in SQL (`withSum` over the same line expressions `CashFlowQuery` uses), never by hydrating lines — a year of trading is three queries. Alias the aggregate to a name no model casts (`net_minor_units`, `goods_minor_units`) and cast with `(int)`; `withSum` applies no cast of its own.
 
 The report screen sends the whole period unpaginated. The period is the bound: a report showing only the first few would not be a report.
+
+## A customer's debt is derived in one place, never stored
+`CustomerBalanceQuery` is the ONLY place a balance is worked out: invoiced on delivered sales, less `sales.amount_paid`, less the allocations against them. Never add a balance column — every sale, part payment and deletion moves it, so it is the figure most certain to drift.
+
+Only `proceed` (delivered) sales count. An `ordered` sale is a quote and an `on_the_way` one has left the shelf without reaching the customer; money on either is a deposit sitting in `amount_paid`, owing nobody anything.
+
+Aggregate over three separate grouped queries, never one join across `sale_lines` and `customer_payment_allocations` together — joining both at once multiplies rows and silently doubles the figures.
+
+## Income and collected are two figures, and both belong on the report
+`income` is what was sold on delivered invoices, paid for or not. `collected` is what came through the door: `sales.amount_paid` on delivered sales in the window, plus every `customer_payment` received in it — including repayments of invoices from months before. On credit terms these are two different questions, so the screen shows both. `net` stays income − outcome, so a shop that sells well on credit does not read as failing.
+
+A sale counts from `proceed` (delivered), not from `on_the_way`. Stock leaves a status earlier; that is the one place the ledger and the money view deliberately part company.
+
+"Owed to you" is NOT in this query. It is a position (what is unpaid today), not a flow over the window, so the controllers read it from `CustomerBalanceQuery::total()`.

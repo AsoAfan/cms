@@ -101,6 +101,49 @@ arch('inventory never reaches for expenses')
     ->not->toUse(['App\Models\Expense', 'App\Models\ExpenseCategory']);
 
 /*
+|--------------------------------------------------------------------------
+| A repayment is money, not goods
+|--------------------------------------------------------------------------
+|
+| The stock left the shelf when the sale was delivered. A customer paying down
+| what they owe moves money and nothing else, so letting a payment reach the
+| ledger would take the same goods out twice — the mirror of the expenses rule
+| above, and just as easy to get wrong.
+|
+*/
+
+arch('customer payments never touch inventory')
+    ->expect([
+        'App\Models\CustomerPayment',
+        'App\Models\CustomerPaymentAllocation',
+        'App\Actions\Customers',
+        'App\Http\Controllers\Customers',
+        'App\Http\Requests\Customers',
+        'App\Queries\CustomerBalanceQuery',
+    ])
+    ->not->toUse([
+        'App\Services\InventoryService',
+        'App\Models\StockMovement',
+        'App\Models\StockBatch',
+        'App\Models\StockBatchConsumption',
+        'App\Queries\StockOnHandQuery',
+        'App\Queries\InventoryValuationQuery',
+    ]);
+
+arch('inventory never reaches for customer loans')
+    ->expect([
+        'App\Services\InventoryService',
+        'App\Queries\StockOnHandQuery',
+        'App\Queries\InventoryValuationQuery',
+    ])
+    ->not->toUse([
+        'App\Models\Customer',
+        'App\Models\CustomerPayment',
+        'App\Models\CustomerPaymentAllocation',
+        'App\Queries\CustomerBalanceQuery',
+    ]);
+
+/*
  * The report is a cash view: outcome is what was paid out in the window, and
  * cost of goods sold has no place in it. Letting the FIFO batch allocations
  * into this query would mix the two views and double-count a purchase — once
@@ -153,6 +196,18 @@ arch('reports and the ledger never convert currency')
         'App\Actions\Sales\SaveSaleAction',
     ]);
 
-arch('exchange rates are read from the table, never from the network')
-    ->expect('App\Services\CurrencyService')
+/*
+ * Rates are typed in on Settings → Exchange rates, and read from the table.
+ * A published feed was fetched on a schedule for a while and removed: the
+ * official rate and the rate this business actually trades at are rarely the
+ * same number, and it is the second one that costs an invoice correctly.
+ * Nothing in the application reaches for the network.
+ */
+arch('nothing fetches an exchange rate over the network')
+    ->expect([
+        'App\Services\CurrencyService',
+        'App\Support\ExchangeRates',
+        'App\Http\Controllers\Settings',
+        'App\Http\Requests\Concerns',
+    ])
     ->not->toUse('Illuminate\Support\Facades\Http');

@@ -14,43 +14,27 @@ import {
 } from '@/components/ui/dialog';
 import { FieldGroup } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import { useCurrency, useToBase } from '@/hooks/use-currency';
 import { todayIso } from '@/lib/date';
 import { toDecimalString } from '@/lib/money';
 import { purchase } from '@/routes/products';
-import type {
-    ProductListRow,
-    QuickPurchaseForm,
-    SupplierOption,
-} from '@/types/catalog';
-
-/** Stands in for "nobody" — a Select cannot hold an empty value. */
-const NO_SUPPLIER = 'none';
+import type { ProductListRow, QuickPurchaseForm } from '@/types/catalog';
 
 export type QuickPurchaseDialogProps = {
     product: ProductListRow | null;
-    suppliers: SupplierOption[];
     onOpenChange: (open: boolean) => void;
 };
 
 /**
- * Buying one product, in one dialog.
+ * Ordering one product, in one dialog.
  *
- * It writes a real posted invoice rather than a shortcut, so the stock arrives
- * costed the same way a typed-up supplier invoice would. That is why the date
- * is here: goods get entered days after they land, and the ledger should say
- * when they actually arrived.
+ * It writes a real invoice rather than a shortcut — at `ordered`, so it moves
+ * no stock. The goods arrive when the invoice is marked Proceed, which is on
+ * the invoice's own screen. The dialog says so, because somebody who expected
+ * the shelf to go up needs to know where that now happens.
  */
 export function QuickPurchaseDialog({
     product,
-    suppliers,
     onOpenChange,
 }: QuickPurchaseDialogProps) {
     return (
@@ -60,7 +44,6 @@ export function QuickPurchaseDialog({
                     <PurchaseForm
                         key={product.id}
                         product={product}
-                        suppliers={suppliers}
                         onDone={() => onOpenChange(false)}
                     />
                 )}
@@ -71,20 +54,15 @@ export function QuickPurchaseDialog({
 
 function PurchaseForm({
     product,
-    suppliers,
     onDone,
 }: {
     product: ProductListRow;
-    suppliers: SupplierOption[];
     onDone: () => void;
 }) {
     const { base } = useCurrency();
     const toBase = useToBase();
 
     const form = useForm<QuickPurchaseForm>({
-        // Optional, and empty unless there is one obvious answer: with a single
-        // supplier on file, pre-selecting it records more than it costs.
-        supplier_id: suppliers.length === 1 ? String(suppliers[0].id) : '',
         quantity: '1',
         unit_cost: toDecimalString(product.cost_price),
         unit_cost_currency: base,
@@ -111,9 +89,10 @@ function PurchaseForm({
     return (
         <form onSubmit={submit} className="grid gap-6">
             <DialogHeader>
-                <DialogTitle className="pr-8">Buy {product.name}</DialogTitle>
+                <DialogTitle className="pr-8">Order {product.name}</DialogTitle>
                 <DialogDescription>
-                    Records a posted purchase and puts the stock on the shelf.
+                    Writes a purchase at Ordered. The stock arrives when you
+                    mark the invoice Proceed.
                 </DialogDescription>
             </DialogHeader>
 
@@ -170,43 +149,6 @@ function PurchaseForm({
                         />
                     )}
                 </FormField>
-
-                {/* Last, and optional: what arrived and what it cost is the
-                    purchase. Who it came from is filing. */}
-                <FormField label="Supplier" error={form.errors.supplier_id}>
-                    {(control) => (
-                        <Select
-                            value={
-                                form.data.supplier_id === ''
-                                    ? NO_SUPPLIER
-                                    : form.data.supplier_id
-                            }
-                            onValueChange={(value) =>
-                                form.setData(
-                                    'supplier_id',
-                                    value === NO_SUPPLIER ? '' : String(value),
-                                )
-                            }
-                        >
-                            <SelectTrigger {...control} className="w-full">
-                                <SelectValue placeholder="No supplier" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value={NO_SUPPLIER}>
-                                    No supplier
-                                </SelectItem>
-                                {suppliers.map((supplier) => (
-                                    <SelectItem
-                                        key={supplier.id}
-                                        value={String(supplier.id)}
-                                    >
-                                        {supplier.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    )}
-                </FormField>
             </FieldGroup>
 
             <div className="flex items-baseline justify-between border-t pt-4">
@@ -226,7 +168,7 @@ function PurchaseForm({
                     Cancel
                 </Button>
                 <Button type="submit" disabled={form.processing}>
-                    Buy
+                    Order
                 </Button>
             </DialogFooter>
         </form>

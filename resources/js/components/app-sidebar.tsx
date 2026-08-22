@@ -2,11 +2,14 @@ import { Link, usePage } from '@inertiajs/react';
 import {
     BadgeDollarSign,
     ChartLine,
+    Coins,
+    Landmark,
     LayoutDashboard,
     Package,
     Receipt,
     ShoppingCart,
     Truck,
+    Users,
     Wallet,
 } from 'lucide-react';
 
@@ -23,11 +26,14 @@ import {
     SidebarRail,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import customers from '@/routes/customers';
 import expenses from '@/routes/expenses';
 import products from '@/routes/products';
 import purchases from '@/routes/purchases';
 import reports from '@/routes/reports';
 import sales from '@/routes/sales';
+import banks from '@/routes/settings/banks';
+import exchangeRates from '@/routes/settings/exchange-rates';
 import suppliers from '@/routes/suppliers';
 import type { NavGroup } from '@/types';
 
@@ -55,31 +61,43 @@ const navigation: NavGroup[] = [
     {
         label: 'Trade',
         items: [
-            /*{
+            {
                 title: 'Purchases',
                 href: purchases.index.url(),
                 icon: ShoppingCart,
             },
-            { title: 'Sales', href: sales.index.url(), icon: Receipt },*/
+            { title: 'Sales', href: sales.index.url(), icon: Receipt },
             { title: 'Expenses', href: expenses.index.url(), icon: Wallet },
         ],
     },
-    /*{
+    {
         label: 'Contacts',
         items: [
+            { title: 'Customers', href: customers.index.url(), icon: Users },
             { title: 'Suppliers', href: suppliers.index.url(), icon: Truck },
         ],
-    },*/
+    },
     {
         label: 'Analysis',
         items: [
             { title: 'Reports', href: reports.index.url(), icon: ChartLine },
         ],
     },
+    {
+        label: 'Settings',
+        items: [
+            {
+                title: 'Exchange rates',
+                href: exchangeRates.index.url(),
+                icon: Coins,
+            },
+            { title: 'Banks', href: banks.index.url(), icon: Landmark },
+        ],
+    },
 ];
 
 export function AppSidebar() {
-    const { url, props } = usePage();
+    const { url } = usePage();
 
     return (
         <Sidebar collapsible="icon">

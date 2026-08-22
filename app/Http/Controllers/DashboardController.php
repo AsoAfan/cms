@@ -6,6 +6,7 @@ use App\Enums\ReportPreset;
 use App\Http\Concerns\InteractsWithReports;
 use App\Queries\ActivityQuery;
 use App\Queries\CashFlowQuery;
+use App\Queries\CustomerBalanceQuery;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -23,6 +24,7 @@ class DashboardController extends Controller
     public function __construct(
         private readonly CashFlowQuery $cashFlow,
         private readonly ActivityQuery $activity,
+        private readonly CustomerBalanceQuery $balances,
     ) {}
 
     /**
@@ -33,9 +35,9 @@ class DashboardController extends Controller
      * parameters the report screen reads, so the dashboard and the report are
      * never answering for different windows.
      *
-     * Drafts are listed here and nowhere else: an unfinished invoice is work
-     * still to do rather than a figure, and nothing it contains reaches a
-     * total on either screen.
+     * Orders still on their way are listed here and nowhere else: goods nobody
+     * has yet are work still to do rather than a figure, and nothing they
+     * contain reaches a total on either screen.
      */
     public function index(): Response
     {
@@ -45,7 +47,10 @@ class DashboardController extends Controller
             ...$this->periodProps($period),
             'cashFlow' => $this->cashFlow->get($period),
             'previous' => $this->cashFlow->get($period->previous()),
-            'recent' => $this->activity->get($period, limit: self::RECENT_LIMIT, drafts: true),
+            'recent' => $this->activity->get($period, limit: self::RECENT_LIMIT, pending: true),
+            // A position rather than a flow — what is unpaid today, whatever
+            // window the tiles are showing.
+            'owed' => $this->balances->total()->minorUnits,
         ]);
     }
 }

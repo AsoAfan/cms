@@ -30,7 +30,15 @@ return new class extends Migration
         Schema::create('exchange_rates', function (Blueprint $table) {
             $table->id();
 
+            // Cascades: a rate quotes one currency against the base, so removing
+            // the currency removes every quote of it. Nothing is orphaned and
+            // nothing survives to be looked up by a code that no longer exists.
             $table->char('currency', 3);
+            $table->foreign('currency')
+                ->references('code')
+                ->on('currencies')
+                ->cascadeOnDelete();
+
             $table->unsignedBigInteger('rate');
             $table->date('effective_on');
 

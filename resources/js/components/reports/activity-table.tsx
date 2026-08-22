@@ -45,7 +45,7 @@ export const ACTIVITY_KINDS: Record<ActivityKind, KindPresentation> = {
         icon: ShoppingCart,
         noun: 'Purchase',
         labelHeader: 'Number',
-        detailHeader: 'Supplier',
+        detailHeader: 'Status',
         empty: 'No purchases in this period.',
     },
     expense: {
@@ -82,13 +82,11 @@ export function combineActivity(
  */
 function documentUrl(row: ActivityRow): string | null {
     if (row.kind === 'sale') {
-        return row.draft ? sales.edit.url(row.id) : sales.show.url(row.id);
+        return sales.show.url(row.id);
     }
 
     if (row.kind === 'purchase') {
-        return row.draft
-            ? purchases.edit.url(row.id)
-            : purchases.show.url(row.id);
+        return purchases.show.url(row.id);
     }
 
     return null;
@@ -223,7 +221,7 @@ function ActivityTableRow({
                     ) : (
                         <span className="font-medium">{row.label}</span>
                     )}
-                    {row.draft && <Badge variant="outline">Draft</Badge>}
+                    {row.pending && <Badge variant="outline">Pending</Badge>}
                 </span>
             </TableCell>
 

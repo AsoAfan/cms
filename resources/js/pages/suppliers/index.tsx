@@ -4,16 +4,10 @@ import { Plus, Truck } from 'lucide-react';
 import { DataTable } from '@/components/data-table';
 import type { Column } from '@/components/data-table';
 import { EmptyState } from '@/components/empty-state';
+import { OptionSelect } from '@/components/option-select';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
 import { create, edit } from '@/routes/suppliers';
 import type { BreadcrumbItem, Paginated, TableState } from '@/types';
@@ -114,24 +108,18 @@ export default function SuppliersIndex({
                 getRowKey={(row) => row.id}
                 searchPlaceholder="Search suppliers"
                 toolbar={
-                    <Select
+                    <OptionSelect
+                        className="w-36"
+                        aria-label="Filter by status"
                         value={table.filters.status ?? ANY}
-                        onValueChange={(value) =>
-                            applyFilter('status', String(value))
-                        }
-                    >
-                        <SelectTrigger
-                            className="w-36"
-                            aria-label="Filter by status"
-                        >
-                            <SelectValue placeholder="Status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value={ANY}>Any status</SelectItem>
-                            <SelectItem value="active">Active</SelectItem>
-                            <SelectItem value="inactive">Archived</SelectItem>
-                        </SelectContent>
-                    </Select>
+                        options={[
+                            { value: ANY, label: 'Any status' },
+                            { value: 'active', label: 'Active' },
+                            { value: 'inactive', label: 'Archived' },
+                        ]}
+                        onChange={(value) => applyFilter('status', value)}
+                        placeholder="Status"
+                    />
                 }
                 empty={
                     <EmptyState

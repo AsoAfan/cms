@@ -15,6 +15,7 @@ use App\Http\Controllers\Sales\QuickSaleController;
 use App\Http\Controllers\Sales\SaleController;
 use App\Http\Controllers\Settings\BankAdjustmentController;
 use App\Http\Controllers\Settings\BankController;
+use App\Http\Controllers\Settings\BankTransferController;
 use App\Http\Controllers\Settings\CurrencyController;
 use App\Http\Controllers\Settings\ExchangeRateController;
 use App\Http\Controllers\Settings\UpdateController;
@@ -137,6 +138,15 @@ Route::middleware('auth')->group(function (): void {
         Route::delete('bank-balance/{adjustment}', [BankAdjustmentController::class, 'destroy'])
             ->name('banks.balance.destroy')
             ->whereNumber('adjustment');
+
+        // Money moved between the business's own accounts. One row covers both
+        // sides, so a transfer cannot be half-recorded and cannot change what
+        // the business holds in total.
+        Route::post('banks/transfers', [BankTransferController::class, 'store'])
+            ->name('banks.transfers.store');
+        Route::delete('banks/transfers/{transfer}', [BankTransferController::class, 'destroy'])
+            ->name('banks.transfers.destroy')
+            ->whereNumber('transfer');
 
         Route::post('currencies', [CurrencyController::class, 'store'])
             ->name('currencies.store');

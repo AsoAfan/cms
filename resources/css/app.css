@@ -3,12 +3,50 @@
 @import 'shadcn/tailwind.css';
 @import '@fontsource-variable/inter';
 
+/*
+ * The three faces the logo is drawn from. Nothing else in the application uses
+ * them, and a browser only fetches a face something on the page actually needs
+ * — so these cost nothing on a screen with no logo on it.
+ */
+@font-face {
+    font-family: 'UniQAIDAR BiLaL';
+    src: url('../fonts/uniqaidar-bilal.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Shrikhand';
+    src: url('../fonts/shrikhand-regular.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Poppins';
+    src: url('../fonts/poppins-bold.ttf') format('truetype');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @source '../views';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 
 @theme {
+    /* The logo's three faces, so it is written in utilities like anything
+       else. The brand blue lives here too: one place to correct it. */
+    --font-logo-initial: 'UniQAIDAR BiLaL', ui-serif, serif;
+    --font-logo-word: 'Shrikhand', ui-serif, serif;
+    --font-logo-tagline: 'Poppins', ui-sans-serif, sans-serif;
+    /* The mark's own blue, and the lighter ink the stamp is pressed in. */
+    --color-brand: #004aad;
+    --color-brand-light: #549bfc;
+
     --font-sans:
         'Instrument Sans', ui-sans-serif, system-ui, sans-serif,
         'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
@@ -136,5 +174,67 @@
     }
     html {
         @apply font-sans;
+    }
+}
+
+/*
+ * Printing: the paperwork, not the application.
+ *
+ * A printed invoice is a document somebody keeps, so the shell around it —
+ * sidebar, topbar, toasts, every button — is not part of it. A screen marks its
+ * own on-screen furniture `print:hidden` and its printable document
+ * `hidden print:block`; this removes the shell they all sit in.
+ *
+ * `@page` carries NO margin, and the document pads itself instead. That is what
+ * lets the masthead bar run off the left edge of the paper the way the design
+ * has it; a page margin would leave a white gutter beside it.
+ */
+@media print {
+    @page {
+        size: A4;
+        margin: 0;
+    }
+
+    /* Most of an A4 sheet, so a page's footer sits near the bottom rather
+       than under its last line. Deliberately short of the full 297mm: a block
+       that exactly fills the sheet and then forces a break is how printers
+       end up spitting out a blank page after every real one. */
+    :root {
+        --invoice-page-height: 280mm;
+        color-scheme: light;
+    }
+
+    html,
+    body {
+        background: #fff !important;
+    }
+
+    /* The shell. A toast that happens to be up when Ctrl+P lands is chrome
+       too, and it renders in a portal outside everything else. */
+    [data-slot='sidebar'],
+    [data-slot='sidebar-gap'],
+    [data-slot='sidebar-container'],
+    [data-slot='sidebar-inset'] > header,
+    [data-slot='toast-portal'],
+    [data-slot='toast-viewport'] {
+        display: none !important;
+    }
+
+    [data-slot='sidebar-wrapper'],
+    [data-slot='sidebar-inset'] {
+        min-height: 0 !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+        background: transparent !important;
+    }
+
+    /*
+     * Backgrounds are dropped from a printout unless the page asks for them.
+     * The invoice's masthead is a dark bar with the word reversed out of it —
+     * drop the bar and you print white on white — so it opts back in.
+     */
+    [data-print-ink='exact'] {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
     }
 }

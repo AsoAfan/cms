@@ -96,6 +96,9 @@ export type SaleDetail = {
     number: string;
     customer: string;
     customer_id: number;
+    /** For the printed invoice's "issued to" block. Both optional. */
+    customer_phone: string | null;
+    customer_address: string | null;
     sold_on: string;
     status: SaleStatus;
     /** The enum value, which the drawer's select holds. */

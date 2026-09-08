@@ -10,6 +10,12 @@ import {
     MoneyReviewSwitch,
 } from '@/components/money-display';
 import { SaleDrawer } from '@/components/sales/sale-drawer';
+import {
+    PrintInvoiceButton,
+    SaleInvoiceDocument,
+    useLinesPerPage,
+    usePrintCurrency,
+} from '@/components/sales/sale-print';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -60,6 +66,8 @@ export default function SalesShow({
     const [editing, setEditing] = useState(false);
     const [confirmingDelete, setConfirmingDelete] = useState(false);
     const [moving, setMoving] = useState(false);
+    const [linesPerPage, setLinesPerPage] = useLinesPerPage();
+    const [printCurrency, setPrintCurrency] = usePrintCurrency();
 
     setLayoutProps<{ breadcrumbs: BreadcrumbItem[] }>({
         breadcrumbs: [
@@ -87,282 +95,313 @@ export default function SalesShow({
         <>
             <Head title={sale.number} />
 
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <StatusStepper
-                    status={sale.status}
-                    statuses={statuses}
-                    busy={moving}
-                    onChange={moveTo}
-                />
+            {/* Everything on screen. The printer gets the document below
+                instead — same data, laid out as paperwork. */}
+            <div className="flex flex-col gap-6 print:hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <StatusStepper
+                        status={sale.status}
+                        statuses={statuses}
+                        busy={moving}
+                        onChange={moveTo}
+                    />
 
-                <div className="flex items-center gap-2">
-                    <Button variant="ghost" render={<Link href={index()} />}>
-                        <ArrowLeft data-icon="inline-start" />
-                        Sales
-                    </Button>
-                    <Button variant="outline" onClick={() => setEditing(true)}>
-                        <Pencil data-icon="inline-start" />
-                        Edit
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Delete ${sale.number}`}
-                        onClick={() => setConfirmingDelete(true)}
-                    >
-                        <Trash2 />
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="ghost"
+                            render={<Link href={index()} />}
+                        >
+                            <ArrowLeft data-icon="inline-start" />
+                            Sales
+                        </Button>
+                        <PrintInvoiceButton
+                            linesPerPage={linesPerPage}
+                            onLinesPerPageChange={setLinesPerPage}
+                            currency={printCurrency}
+                            onCurrencyChange={setPrintCurrency}
+                        />
+                        <Button
+                            variant="outline"
+                            onClick={() => setEditing(true)}
+                        >
+                            <Pencil data-icon="inline-start" />
+                            Edit
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Delete ${sale.number}`}
+                            onClick={() => setConfirmingDelete(true)}
+                        >
+                            <Trash2 />
+                        </Button>
+                    </div>
                 </div>
-            </div>
 
-            {confirmingDelete && (
-                <Card className="border-destructive/40 bg-destructive/5">
-                    <CardContent className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-sm">
-                            Delete {sale.number}?
-                            {gone &&
-                                ' The stock it took out goes back on the shelf.'}
-                        </p>
-                        <div className="flex gap-2">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setConfirmingDelete(false)}
-                            >
-                                Keep
-                            </Button>
-                            <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() =>
-                                    router.delete(destroy.url(sale.id))
-                                }
-                            >
-                                Delete
-                            </Button>
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
-
-            <Card>
-                <CardContent className="flex flex-col gap-6 py-2">
-                    <header className="flex flex-wrap items-start justify-between gap-4">
-                        <div>
-                            <h1 className="font-mono text-2xl font-semibold tracking-tight">
-                                {sale.number}
-                            </h1>
-                            <p className="text-sm text-muted-foreground">
-                                Sold {sale.sold_on} to{' '}
-                                <Link
-                                    href={showCustomer(sale.customer_id)}
-                                    className="underline underline-offset-2 hover:no-underline"
-                                >
-                                    {sale.customer}
-                                </Link>
+                {confirmingDelete && (
+                    <Card className="border-destructive/40 bg-destructive/5">
+                        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="text-sm">
+                                Delete {sale.number}?
+                                {gone &&
+                                    ' The stock it took out goes back on the shelf.'}
                             </p>
-                        </div>
+                            <div className="flex gap-2">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setConfirmingDelete(false)}
+                                >
+                                    Keep
+                                </Button>
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() =>
+                                        router.delete(destroy.url(sale.id))
+                                    }
+                                >
+                                    Delete
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
 
-                        <dl className="text-right text-sm">
-                            <div className="flex justify-end gap-2">
-                                <dt className="text-muted-foreground">Items</dt>
-                                <dd className="tabular-nums">
-                                    {sale.total_quantity}
-                                </dd>
+                <Card>
+                    <CardContent className="flex flex-col gap-6 py-2">
+                        <header className="flex flex-wrap items-start justify-between gap-4">
+                            <div>
+                                <h1 className="font-mono text-2xl font-semibold tracking-tight">
+                                    {sale.number}
+                                </h1>
+                                <p className="text-sm text-muted-foreground">
+                                    Sold {sale.sold_on} to{' '}
+                                    <Link
+                                        href={showCustomer(sale.customer_id)}
+                                        className="underline underline-offset-2 hover:no-underline"
+                                    >
+                                        {sale.customer}
+                                    </Link>
+                                </p>
                             </div>
-                            <div className="flex justify-end gap-2">
-                                <dt className="text-muted-foreground">
-                                    Paid by
-                                </dt>
-                                <dd>
-                                    {sale.payment_method_label}
-                                    {sale.bank && ` · ${sale.bank}`}
-                                </dd>
-                            </div>
-                            {sale.currency !== sale.base_currency && (
+
+                            <dl className="text-right text-sm">
                                 <div className="flex justify-end gap-2">
                                     <dt className="text-muted-foreground">
-                                        Taken in
+                                        Items
                                     </dt>
-                                    <dd>
-                                        {sale.currency} @ {sale.exchange_rate}
+                                    <dd className="tabular-nums">
+                                        {sale.total_quantity}
                                     </dd>
                                 </div>
-                            )}
-                            <div className="flex justify-end gap-2">
-                                <dt className="text-muted-foreground">Stock</dt>
-                                <dd>
-                                    {gone
-                                        ? `Left ${sale.committed_at}`
-                                        : 'Still on the shelf'}
-                                </dd>
-                            </div>
-                        </dl>
-                    </header>
+                                <div className="flex justify-end gap-2">
+                                    <dt className="text-muted-foreground">
+                                        Paid by
+                                    </dt>
+                                    <dd>
+                                        {sale.payment_method_label}
+                                        {sale.bank && ` · ${sale.bank}`}
+                                    </dd>
+                                </div>
+                                {sale.currency !== sale.base_currency && (
+                                    <div className="flex justify-end gap-2">
+                                        <dt className="text-muted-foreground">
+                                            Taken in
+                                        </dt>
+                                        <dd>
+                                            {sale.currency} @{' '}
+                                            {sale.exchange_rate}
+                                        </dd>
+                                    </div>
+                                )}
+                                <div className="flex justify-end gap-2">
+                                    <dt className="text-muted-foreground">
+                                        Stock
+                                    </dt>
+                                    <dd>
+                                        {gone
+                                            ? `Left ${sale.committed_at}`
+                                            : 'Still on the shelf'}
+                                    </dd>
+                                </div>
+                            </dl>
+                        </header>
 
-                    <div className="overflow-x-auto rounded-lg border">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Product</TableHead>
-                                    <TableHead className="text-right">
-                                        Qty
-                                    </TableHead>
-                                    <TableHead className="text-right">
-                                        Price
-                                    </TableHead>
-                                    <TableHead className="text-right">
-                                        Discount
-                                    </TableHead>
-                                    <TableHead className="text-right">
-                                        Total
-                                    </TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {sale.lines.map((line) => (
-                                    <TableRow key={line.id}>
-                                        <TableCell className="font-medium">
-                                            {line.product}
-                                        </TableCell>
-                                        <TableCell className="text-right tabular-nums">
-                                            {line.quantity}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <MoneyDisplay
-                                                amount={line.unit_price}
+                        <div className="overflow-x-auto rounded-lg border">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Product</TableHead>
+                                        <TableHead className="text-right">
+                                            Qty
+                                        </TableHead>
+                                        <TableHead className="text-right">
+                                            Price
+                                        </TableHead>
+                                        <TableHead className="text-right">
+                                            Discount
+                                        </TableHead>
+                                        <TableHead className="text-right">
+                                            Total
+                                        </TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {sale.lines.map((line) => (
+                                        <TableRow key={line.id}>
+                                            <TableCell className="font-medium">
+                                                {line.product}
+                                            </TableCell>
+                                            <TableCell className="text-right tabular-nums">
+                                                {line.quantity}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                <MoneyDisplay
+                                                    amount={line.unit_price}
+                                                />
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                {line.discount === 0 ? (
+                                                    <span className="text-muted-foreground">
+                                                        —
+                                                    </span>
+                                                ) : (
+                                                    <MoneyDisplay
+                                                        amount={line.discount}
+                                                    />
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="text-right font-medium">
+                                                <MoneyDisplay
+                                                    amount={line.net_total}
+                                                />
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+
+                        {/* One dropdown for the whole summary: these figures are one
+                        statement about one sale, and reading the total in
+                        dollars against a profit in dinars says nothing. */}
+                        <MoneyReviewGroup>
+                            <div className="flex justify-end">
+                                <dl className="flex w-full max-w-xs flex-col gap-2 text-sm">
+                                    <div className="flex items-center justify-between text-base font-semibold">
+                                        <dt>Total</dt>
+                                        <dd>
+                                            <MoneyReview amount={sale.total} />
+                                        </dd>
+                                    </div>
+
+                                    <div className="flex items-center justify-between">
+                                        <dt className="text-muted-foreground">
+                                            Cost of goods
+                                        </dt>
+                                        <dd>
+                                            {gone ? (
+                                                <MoneyReview
+                                                    amount={
+                                                        sale.cost_of_goods_sold
+                                                    }
+                                                />
+                                            ) : (
+                                                <span className="text-muted-foreground">
+                                                    —
+                                                </span>
+                                            )}
+                                        </dd>
+                                    </div>
+
+                                    <div className="flex items-center justify-between font-medium">
+                                        <dt>Gross profit</dt>
+                                        <dd>
+                                            {gone ? (
+                                                <MoneyReview
+                                                    amount={sale.gross_profit}
+                                                    colored
+                                                />
+                                            ) : (
+                                                <span className="text-muted-foreground">
+                                                    —
+                                                </span>
+                                            )}
+                                        </dd>
+                                    </div>
+
+                                    <Separator />
+
+                                    <div className="flex items-center justify-between">
+                                        <dt className="text-muted-foreground">
+                                            Paid
+                                        </dt>
+                                        <dd>
+                                            <MoneyReview
+                                                amount={sale.paid_to_date}
                                             />
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            {line.discount === 0 ? (
+                                        </dd>
+                                    </div>
+
+                                    <div className="flex items-center justify-between font-medium">
+                                        <dt>Owed</dt>
+                                        <dd>
+                                            {sale.outstanding === 0 ? (
                                                 <span className="text-muted-foreground">
                                                     —
                                                 </span>
                                             ) : (
-                                                <MoneyDisplay
-                                                    amount={line.discount}
+                                                <MoneyReview
+                                                    amount={sale.outstanding}
                                                 />
                                             )}
-                                        </TableCell>
-                                        <TableCell className="text-right font-medium">
-                                            <MoneyDisplay
-                                                amount={line.net_total}
-                                            />
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </div>
+                                        </dd>
+                                    </div>
 
-                    {/* One dropdown for the whole summary: these figures are one
-                        statement about one sale, and reading the total in
-                        dollars against a profit in dinars says nothing. */}
-                    <MoneyReviewGroup>
-                        <div className="flex justify-end">
-                            <dl className="flex w-full max-w-xs flex-col gap-2 text-sm">
-                                <div className="flex items-center justify-between text-base font-semibold">
-                                    <dt>Total</dt>
-                                    <dd>
-                                        <MoneyReview amount={sale.total} />
-                                    </dd>
-                                </div>
-
-                                <div className="flex items-center justify-between">
-                                    <dt className="text-muted-foreground">
-                                        Cost of goods
-                                    </dt>
-                                    <dd>
-                                        {gone ? (
-                                            <MoneyReview
-                                                amount={sale.cost_of_goods_sold}
-                                            />
-                                        ) : (
-                                            <span className="text-muted-foreground">
-                                                —
-                                            </span>
-                                        )}
-                                    </dd>
-                                </div>
-
-                                <div className="flex items-center justify-between font-medium">
-                                    <dt>Gross profit</dt>
-                                    <dd>
-                                        {gone ? (
-                                            <MoneyReview
-                                                amount={sale.gross_profit}
-                                                colored
-                                            />
-                                        ) : (
-                                            <span className="text-muted-foreground">
-                                                —
-                                            </span>
-                                        )}
-                                    </dd>
-                                </div>
-
-                                <Separator />
-
-                                <div className="flex items-center justify-between">
-                                    <dt className="text-muted-foreground">
-                                        Paid
-                                    </dt>
-                                    <dd>
-                                        <MoneyReview
-                                            amount={sale.paid_to_date}
-                                        />
-                                    </dd>
-                                </div>
-
-                                <div className="flex items-center justify-between font-medium">
-                                    <dt>Owed</dt>
-                                    <dd>
-                                        {sale.outstanding === 0 ? (
-                                            <span className="text-muted-foreground">
-                                                —
-                                            </span>
-                                        ) : (
-                                            <MoneyReview
-                                                amount={sale.outstanding}
-                                            />
-                                        )}
-                                    </dd>
-                                </div>
-
-                                <div className="flex items-center justify-between gap-3">
-                                    {/* Nothing is owed before the goods are the
+                                    <div className="flex items-center justify-between gap-3">
+                                        {/* Nothing is owed before the goods are the
                                         customer's, so say why rather than
                                         showing a bare zero. */}
-                                    <p className="text-xs text-muted-foreground">
-                                        {!sale.delivered &&
-                                            sale.paid_to_date < sale.total &&
-                                            'Owed once the customer has it.'}
-                                        {sale.delivered &&
-                                            sale.outstanding > 0 && (
-                                                <Link
-                                                    href={showCustomer(
-                                                        sale.customer_id,
-                                                    )}
-                                                    className="underline underline-offset-2 hover:no-underline"
-                                                >
-                                                    Record a payment on{' '}
-                                                    {sale.customer}'s account
-                                                </Link>
-                                            )}
-                                    </p>
-                                    <MoneyReviewSwitch label="Read in" />
-                                </div>
-                            </dl>
-                        </div>
-                    </MoneyReviewGroup>
+                                        <p className="text-xs text-muted-foreground">
+                                            {!sale.delivered &&
+                                                sale.paid_to_date <
+                                                    sale.total &&
+                                                'Owed once the customer has it.'}
+                                            {sale.delivered &&
+                                                sale.outstanding > 0 && (
+                                                    <Link
+                                                        href={showCustomer(
+                                                            sale.customer_id,
+                                                        )}
+                                                        className="underline underline-offset-2 hover:no-underline"
+                                                    >
+                                                        Record a payment on{' '}
+                                                        {sale.customer}'s
+                                                        account
+                                                    </Link>
+                                                )}
+                                        </p>
+                                        <MoneyReviewSwitch label="Read in" />
+                                    </div>
+                                </dl>
+                            </div>
+                        </MoneyReviewGroup>
 
-                    {sale.notes && (
-                        <p className="border-t pt-4 text-sm whitespace-pre-line text-muted-foreground">
-                            {sale.notes}
-                        </p>
-                    )}
-                </CardContent>
-            </Card>
+                        {sale.notes && (
+                            <p className="border-t pt-4 text-sm whitespace-pre-line text-muted-foreground">
+                                {sale.notes}
+                            </p>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
+
+            <SaleInvoiceDocument
+                sale={sale}
+                linesPerPage={linesPerPage}
+                currency={printCurrency}
+            />
 
             <SaleDrawer
                 open={editing}

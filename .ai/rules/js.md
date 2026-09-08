@@ -32,3 +32,22 @@ Base UI's `<Select.Value>` prints the RAW value unless `<Select.Root>` is given 
 Build dropdowns with `<OptionSelect value options onChange placeholder />` (`components/option-select.tsx`). It takes `{value, label, disabled?}[]`, feeds the same array to `items` and to the popup, and forwards the rest of its props to the trigger, so `{...control}` from `FormField`, `className` and `aria-label` all still work. The server's option props (`statuses`, `paymentMethods`, `allocationMethods`, `presets`) can be passed straight through.
 
 Compose the `ui/select` primitives directly ONLY where an item needs richer markup than a label — `MoneyInput` and `MoneyDisplay`'s currency pickers, whose trigger deliberately shows the bare code. Anywhere else, passing `items` by hand duplicates the labels and lets the two lists drift.
+
+## The logo is set in type, not traced into an SVG
+`<Logo>` composes the mark from the three faces it was drawn in — the initial in
+UniQAIDAR, `ASAMIN` in Shrikhand, the strapline in Poppins Bold — declared as
+`@font-face` in `app.css` from `resources/fonts/`. Real type stays sharp at any
+size and prints at whatever the printer can do.
+
+- `1em` on the way in IS the size of `ASAMIN`; everything else is in `em` off
+  that, so one font size scales the whole mark. Every ratio came from the fonts'
+  own metrics (advances, cap heights, ascent/descent) rather than from eyeing
+  the artwork.
+- **`em` inside a child resolves against that child's OWN font size.** The
+  strapline's `-mt-[1.5em]` is 1.5 x 0.28em, not 1.5 of the mark. This one bites
+  every time.
+- It carries no colour and takes the one around it: `text-brand` (#004aad) on
+  the invoice masthead, `text-brand-light` (#549bfc) inside the footer stamp.
+- It asks for its three faces with `document.fonts.load` on mount, because the
+  printed copy is `display: none` until the print stylesheet applies — and a
+  face nothing visible needs is a face the browser never fetched.

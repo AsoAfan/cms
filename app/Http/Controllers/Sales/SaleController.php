@@ -180,6 +180,10 @@ class SaleController extends Controller
             'number' => $sale->number,
             'customer' => $sale->customer->name,
             'customer_id' => $sale->customer_id,
+            // For the printed invoice's "issued to" block. Filing, all of it
+            // optional — a walk-in has a name and nothing else.
+            'customer_phone' => $sale->customer->phone,
+            'customer_address' => $sale->customer->address,
             'sold_on' => $sale->sold_on->toDateString(),
             'status' => $sale->status->value,
             'payment_method' => $sale->payment_method->value,

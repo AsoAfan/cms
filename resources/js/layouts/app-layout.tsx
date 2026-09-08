@@ -31,7 +31,9 @@ export default function AppLayout({ children, breadcrumbs }: AppLayoutProps) {
                     <AppSidebar />
                     <SidebarInset>
                         <AppTopbar breadcrumbs={breadcrumbs} />
-                        <div className="flex flex-1 flex-col gap-6 p-4 md:p-6">
+                        {/* No padding or gaps in print: a printed document
+                            sets its own margins, in millimetres. */}
+                        <div className="flex flex-1 flex-col gap-6 p-4 md:p-6 print:gap-0 print:p-0">
                             {children}
                         </div>
                     </SidebarInset>

@@ -350,6 +350,25 @@ it('shows a sale that has gone out with what it cost and made', function () {
         );
 });
 
+it('carries what the printed invoice needs, including who it is issued to', function () {
+    $this->customer->update([
+        'phone' => '0770 000 0000',
+        'address' => "Erbil\nIraq",
+    ]);
+
+    $sale = recordSale();
+
+    $this->get("/sales/{$sale->id}")
+        ->assertInertia(fn ($page) => $page
+            ->where('sale.number', 'SAL-00001')
+            ->where('sale.customer_phone', '0770 000 0000')
+            ->where('sale.customer_address', "Erbil\nIraq")
+            ->where('sale.payment_method_label', 'Cash')
+            ->where('sale.lines.0.unit_price', 4400)
+            ->where('sale.lines.0.quantity', 2)
+        );
+});
+
 it('has no create or edit page', function () {
     $sale = recordSale();
 

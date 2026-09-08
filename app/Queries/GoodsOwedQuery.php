@@ -113,14 +113,18 @@ final class GoodsOwedQuery
             ->groupBy('product_id')
             ->map(static fn ($lines): int => (int) $lines->sum('quantity'));
 
-        $rows = $sale->lines
-            ->unique('product_id')
-            ->map(fn (SaleLine $line): array => $this->row(
-                $line->product,
-                $wanted[$line->product_id],
-                $this->onHand->forProduct($line->product, $asAt),
-            ))
-            ->all();
+        // `array_values` because `unique()` keeps the keys of the lines it kept,
+        // so the rows would otherwise come back gapped rather than as a list.
+        $rows = array_values(
+            $sale->lines
+                ->unique('product_id')
+                ->map(fn (SaleLine $line): array => $this->row(
+                    $line->product,
+                    $wanted[$line->product_id],
+                    $this->onHand->forProduct($line->product, $asAt),
+                ))
+                ->all()
+        );
 
         return $this->owing($rows);
     }
@@ -141,7 +145,7 @@ final class GoodsOwedQuery
             return [];
         }
 
-        return SaleLine::query()
+        $rows = SaleLine::query()
             ->toBase()
             ->join('sales', 'sales.id', '=', 'sale_lines.sale_id')
             ->whereNull('sales.committed_at')
@@ -149,16 +153,21 @@ final class GoodsOwedQuery
             ->distinct()
             ->orderBy('sales.sold_on')
             ->orderBy('sales.id')
-            ->get(['sale_lines.product_id', 'sales.id as sale_id', 'sales.number'])
-            ->groupBy('product_id')
-            ->map(static fn ($sales): array => $sales
-                ->map(static fn (object $sale): array => [
-                    'id' => (int) $sale->sale_id,
-                    'number' => $sale->number,
-                ])
-                ->values()
-                ->all())
-            ->all();
+            ->get(['sale_lines.product_id', 'sales.id as sale_id', 'sales.number']);
+
+        // Grouped by hand rather than with `groupBy()->map()`: the query is a
+        // base one, so every column arrives untyped, and appending in the order
+        // the rows came back is what keeps each product's list oldest-first.
+        $waiting = [];
+
+        foreach ($rows as $row) {
+            $waiting[(int) $row->product_id][] = [
+                'id' => (int) $row->sale_id,
+                'number' => (string) $row->number,
+            ];
+        }
+
+        return $waiting;
     }
 
     /**

@@ -1,8 +1,10 @@
 <?php
 
 use App\Enums\CostAllocationMethod;
+use App\Enums\PaymentMethod;
 use App\Enums\PurchaseStatus;
 use App\Enums\StockMovementType;
+use App\Models\Bank;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\PurchaseLine;
@@ -27,6 +29,9 @@ function purchasePayload(array $overrides = []): array
     return array_merge([
         'invoiced_on' => '2026-01-15',
         'status' => PurchaseStatus::Ordered->value,
+        // How the supplier was paid. Cash names no account, which is what an
+        // invoice recorded before banks existed reads as.
+        'payment_method' => PaymentMethod::Cash->value,
         'notes' => 'Delivered in two boxes.',
         'lines' => [
             [
@@ -235,6 +240,172 @@ it('updates an order, replacing its lines', function () {
     expect($purchase->lines)->toHaveCount(1)
         ->and($purchase->lines->first()->product_id)->toBe($other->id)
         ->and($purchase->additionalCosts)->toHaveCount(0);
+});
+
+it('files an invoice under the reference it was given', function () {
+    $purchase = recordPurchase(['number' => 'SUP-9931']);
+
+    expect($purchase->number)->toBe('SUP-9931');
+});
+
+it('changes the reference on an invoice already recorded', function () {
+    $purchase = recordPurchase();
+
+    $this->put("/purchases/{$purchase->id}", purchasePayload(['number' => 'PUR-00099']))
+        ->assertSessionHasNoErrors();
+
+    expect($purchase->fresh()->number)->toBe('PUR-00099');
+});
+
+it('keeps the number an invoice already has when the reference is cleared', function () {
+    $purchase = recordPurchase();
+
+    $this->put("/purchases/{$purchase->id}", purchasePayload(['number' => '']))
+        ->assertSessionHasNoErrors();
+
+    expect($purchase->fresh()->number)->toBe('PUR-00001');
+});
+
+it('refuses a reference another invoice is already filed under', function () {
+    recordPurchase(['number' => 'PUR-00042']);
+
+    $this->post('/purchases', purchasePayload(['number' => 'PUR-00042']))
+        ->assertSessionHasErrors('number');
+
+    expect(Purchase::query()->count())->toBe(1);
+});
+
+it('lets an invoice keep its own reference through an edit', function () {
+    $purchase = recordPurchase(['number' => 'PUR-00042']);
+
+    $this->put("/purchases/{$purchase->id}", purchasePayload(['number' => 'PUR-00042']))
+        ->assertSessionHasNoErrors();
+
+    expect($purchase->fresh()->number)->toBe('PUR-00042');
+});
+
+it('renames an invoice in place, leaving the stock it brought in alone', function () {
+    $purchase = recordPurchase(['status' => PurchaseStatus::Proceed->value]);
+    $movements = StockMovement::query()->count();
+
+    // Spaces around it are typing, not part of the reference.
+    $this->patch("/purchases/{$purchase->id}/number", ['number' => '  SUP-9931  '])
+        ->assertSessionHasNoErrors();
+
+    expect($purchase->fresh()->number)->toBe('SUP-9931')
+        ->and(StockMovement::query()->count())->toBe($movements);
+});
+
+it('renames an invoice whose goods have already been sold', function () {
+    $purchase = recordPurchase(['status' => PurchaseStatus::Proceed->value]);
+    consumeOne($this->product);
+
+    // Editing this invoice is refused, because its batches are spoken for.
+    // A reference is filing, not stock, and must stay correctable regardless.
+    $this->patch("/purchases/{$purchase->id}/number", ['number' => 'SUP-9931'])
+        ->assertSessionHasNoErrors();
+
+    expect($purchase->fresh()->number)->toBe('SUP-9931');
+});
+
+it('refuses to rename an invoice onto a reference already in use', function () {
+    $first = recordPurchase();
+    $second = recordPurchase();
+
+    $this->patch("/purchases/{$second->id}/number", ['number' => $first->number])
+        ->assertSessionHasErrors('number');
+
+    expect($second->fresh()->number)->toBe('PUR-00002');
+});
+
+it('refuses to leave an invoice with no reference at all', function () {
+    $purchase = recordPurchase();
+
+    $this->patch("/purchases/{$purchase->id}/number", ['number' => ' '])
+        ->assertSessionHasErrors('number');
+
+    expect($purchase->fresh()->number)->toBe('PUR-00001');
+});
+
+it('carries on counting from a reference typed in by hand', function () {
+    recordPurchase(['number' => 'PUR-00042']);
+
+    expect(Purchase::nextNumber())->toBe('PUR-00043');
+});
+
+it('counts off the greatest reference, not the last one written', function () {
+    // 'PUR-9' sorts above 'PUR-00010' on characters alone, and following it
+    // would hand back a number the invoice before last already used.
+    recordPurchase(['number' => 'PUR-00010']);
+    recordPurchase(['number' => 'PUR-9']);
+
+    expect(Purchase::nextNumber())->toBe('PUR-00011');
+});
+
+it('follows a reference written in a shape of its own', function () {
+    recordPurchase(['number' => 'INV/2026/014']);
+
+    // Same shape, same padding — the next page of their book, not ours.
+    expect(Purchase::nextNumber())->toBe('INV/2026/015');
+});
+
+it('carries a reference over into another digit', function () {
+    recordPurchase(['number' => '999']);
+
+    expect(Purchase::nextNumber())->toBe('1000');
+});
+
+it('starts its own sequence when no reference has a number in it', function () {
+    recordPurchase(['number' => 'OPENING']);
+
+    expect(Purchase::nextNumber())->toBe('PUR-00001');
+});
+
+it('sends the payment options the drawer needs', function () {
+    $this->get('/purchases')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('purchases/index')
+            ->has('paymentMethods', 3)
+            ->has('banks')
+        );
+});
+
+it('records how an invoice was paid and shows it back', function () {
+    $bank = Bank::factory()->create(['name' => 'Cihan Bank']);
+
+    $purchase = recordPurchase([
+        'payment_method' => PaymentMethod::Transfer->value,
+        'bank_id' => $bank->id,
+    ]);
+
+    expect($purchase->payment_method)->toBe(PaymentMethod::Transfer)
+        ->and($purchase->bank_id)->toBe($bank->id);
+
+    $this->get("/purchases/{$purchase->id}")
+        ->assertInertia(fn ($page) => $page
+            ->where('purchase.payment_method', PaymentMethod::Transfer->value)
+            ->where('purchase.bank', 'Cihan Bank')
+            // A string, because the drawer's select cannot hold a number-or-null.
+            ->where('purchase.bank_id', (string) $bank->id)
+        );
+});
+
+it('lets an invoice paid from an account be switched back to cash', function () {
+    $bank = Bank::factory()->create(['name' => 'Cihan Bank']);
+
+    $purchase = recordPurchase([
+        'payment_method' => PaymentMethod::Transfer->value,
+        'bank_id' => $bank->id,
+    ]);
+
+    $this->put("/purchases/{$purchase->id}", purchasePayload([
+        'payment_method' => PaymentMethod::Cash->value,
+        // What the form sends once the bank field disappears.
+        'bank_id' => '',
+    ]))->assertSessionHasNoErrors();
+
+    expect($purchase->refresh()->bank_id)->toBeNull();
 });
 
 it('shows the invoice with what it comes to', function () {

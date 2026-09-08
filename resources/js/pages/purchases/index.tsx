@@ -14,8 +14,10 @@ import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
 import { show } from '@/routes/purchases';
 import type { BreadcrumbItem, Paginated, TableState } from '@/types';
+import type { BankOption } from '@/types/banks';
 import type {
     AllocationMethodOption,
+    PaymentMethodOption,
     ProductOption,
     PurchaseListRow,
     PurchaseStatusOption,
@@ -37,6 +39,8 @@ export default function PurchasesIndex({
     products,
     allocationMethods,
     statuses,
+    paymentMethods,
+    banks,
 }: {
     rows: Paginated<PurchaseListRow>;
     table: TableState;
@@ -44,6 +48,8 @@ export default function PurchasesIndex({
     products: ProductOption[];
     allocationMethods: AllocationMethodOption[];
     statuses: PurchaseStatusOption[];
+    paymentMethods: PaymentMethodOption[];
+    banks: BankOption[];
 }) {
     const [creating, setCreating] = useState(false);
 
@@ -92,6 +98,17 @@ export default function PurchasesIndex({
             ),
         },
         {
+            key: 'payment_method',
+            header: 'Paid by',
+            hideOnMobile: true,
+            cell: (row) => (
+                <span className="text-muted-foreground">
+                    {row.payment_method}
+                    {row.bank && ` · ${row.bank}`}
+                </span>
+            ),
+        },
+        {
             key: 'total',
             header: 'Total',
             align: 'right',
@@ -135,17 +152,52 @@ export default function PurchasesIndex({
                 searchPlaceholder="Search number or notes"
                 onRowClick={(row) => router.visit(show.url(row.id))}
                 toolbar={
-                    <OptionSelect
-                        className="w-36"
-                        aria-label="Filter by status"
-                        value={table.filters.status ?? ANY}
-                        options={[
-                            { value: ANY, label: 'Any status' },
-                            ...statuses,
-                        ]}
-                        onChange={(value) => applyFilter('status', value)}
-                        placeholder="Status"
-                    />
+                    <>
+                        <OptionSelect
+                            className="w-36"
+                            aria-label="Filter by status"
+                            value={table.filters.status ?? ANY}
+                            options={[
+                                { value: ANY, label: 'Any status' },
+                                ...statuses,
+                            ]}
+                            onChange={(value) => applyFilter('status', value)}
+                            placeholder="Status"
+                        />
+
+                        <OptionSelect
+                            className="w-40"
+                            aria-label="Filter by payment"
+                            value={table.filters.payment_method ?? ANY}
+                            options={[
+                                { value: ANY, label: 'Any payment' },
+                                ...paymentMethods,
+                            ]}
+                            onChange={(value) =>
+                                applyFilter('payment_method', value)
+                            }
+                            placeholder="Payment"
+                        />
+
+                        {banks.length > 0 && (
+                            <OptionSelect
+                                className="w-40"
+                                aria-label="Filter by bank"
+                                value={table.filters.bank_id ?? ANY}
+                                options={[
+                                    { value: ANY, label: 'Any bank' },
+                                    ...banks.map((bank) => ({
+                                        value: String(bank.id),
+                                        label: bank.name,
+                                    })),
+                                ]}
+                                onChange={(value) =>
+                                    applyFilter('bank_id', value)
+                                }
+                                placeholder="Bank"
+                            />
+                        )}
+                    </>
                 }
                 empty={
                     <EmptyState
@@ -167,6 +219,8 @@ export default function PurchasesIndex({
                 products={products}
                 allocationMethods={allocationMethods}
                 statuses={statuses}
+                paymentMethods={paymentMethods}
+                banks={banks}
                 nextNumber={nextNumber}
             />
         </>

@@ -37,7 +37,7 @@ final class SavePurchaseAction
      * what the invoice was written in and at what rate, and are the only currency
      * this action knows about.
      *
-     * @param  array{invoiced_on: string, status: PurchaseStatus, notes: string|null, currency?: string, exchange_rate?: int}  $header
+     * @param  array{number?: string, invoiced_on: string, status: PurchaseStatus, payment_method?: string, bank_id?: int|null, notes: string|null, currency?: string, exchange_rate?: int}  $header
      * @param  list<array{product_id: int, quantity: int, unit_cost: string, discount: string}>  $lines
      * @param  list<array{label: string, amount: string, allocation_method: string}>  $costs
      *
@@ -53,7 +53,13 @@ final class SavePurchaseAction
                 $this->revert->handle($purchase);
             }
 
-            $purchase->fill($header)->save();
+            $purchase->fill([
+                ...$header,
+                // The reference is the user's to set. Absent, a new invoice
+                // keeps the next in sequence it was opened with and an existing
+                // one keeps the number it is already filed under.
+                'number' => $header['number'] ?? $purchase->number,
+            ])->save();
 
             $purchase->lines()->delete();
             $purchase->additionalCosts()->delete();

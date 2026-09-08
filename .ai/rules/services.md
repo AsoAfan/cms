@@ -2,6 +2,7 @@
 paths:
   - 'app/Services/**'
   - app/Services/CurrencyService.php
+  - app/Services/UpdateService.php
 ---
 
 # Services
@@ -51,3 +52,14 @@ Lookups take the newest rate ON OR BEFORE the date, so a rate stands until a new
 `CurrencyService` is a **singleton** (`AppServiceProvider`) so its memoised currencies and rates last the request — a purchase form posts a dozen amounts on one date. Every write calls `forget()`.
 
 TRAP: `effective_on` stores `Y-m-d 00:00:00`, so `max('effective_on')` returns a datetime string and `updateOrCreate` on it never matches a `Y-m-d`. Always `whereDate()` — see `record()` and `latestRowOn()`.
+
+## Self-update: a git checkout of a prebuilt release branch
+Client installs are a shallow git checkout of the `release` branch, which CI publishes with `vendor/` and `public/build` already in it — so a machine with only PHP and git can update. `.github/workflows/release.yml` builds it after `tests` passes; it never publishes a red build.
+
+`UpdateService::apply()` = fetch, back up the SQLite file with `VACUUM INTO` (a plain copy can miss committed rows when a write-ahead log is in play), `git reset --hard`, then `optimize:clear` + `migrate` **in-process**. In-process because there is no portable way to find the PHP binary from inside a request, and the migrator reads the directory when it runs, so it sees the files the reset just wrote. This is also why CI must never use `--classmap-authoritative`: a class the release just added would fail to autoload.
+
+Any failure after the files move rolls the checkout back and restores the backup. A client cannot diagnose or undo a half-applied copy.
+
+`UPDATE_REMOTE` carries the repository credential on a private install. It is passed to git per command (never written to `.git/config`), and every line of git output goes through `redact()` before it can reach a flash message, an exception or a log.
+
+Whether an update is waiting is a **cached** answer on the shared `update` Inertia prop, refreshed from the browser by `UpdateNotice` once it goes stale. Nothing on the server may fetch during a page load — a shop's internet is not reliable, and a screen that waits on it reads as broken. A background check that fails stays silent; only a check the user pressed for reports its failure.

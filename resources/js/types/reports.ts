@@ -46,6 +46,18 @@ export type CashFlow = {
     };
 };
 
+/**
+ * What each account holds — mirrors `ReportController::accountBalances()`.
+ *
+ * A position rather than a flow: it is what is there now, whatever window the
+ * rest of the screen is showing. Accounts nothing has moved through are listed
+ * at zero rather than left out.
+ */
+export type BankBalances = {
+    accounts: { id: number; name: string; balance: MinorUnits }[];
+    total: MinorUnits;
+};
+
 /** The kinds of document an activity table lists, plus the combined view. */
 export type ActivityKind = 'sale' | 'purchase' | 'expense';
 
@@ -73,4 +85,17 @@ export type Activity = {
     sales: ActivityRow[];
     purchases: ActivityRow[];
     expenses: ActivityRow[];
+};
+
+/**
+ * What the business owes in goods — mirrors App\Queries\GoodsOwedQuery.
+ *
+ * The mirror of what customers owe: stock sold that was never bought. A
+ * position, not a flow, so it carries no comparison figure.
+ */
+export type GoodsOwed = {
+    /** Minor units, at cost — what buying it in will take. */
+    value: MinorUnits;
+    items: number;
+    products: number;
 };

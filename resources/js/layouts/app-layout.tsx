@@ -7,6 +7,7 @@ import { FlashToaster } from '@/components/flash-toaster';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { UpdateNotice } from '@/components/update-notice';
 import type { BreadcrumbItem } from '@/types';
 
 export type AppLayoutProps = {
@@ -39,6 +40,8 @@ export default function AppLayout({ children, breadcrumbs }: AppLayoutProps) {
                     </SidebarInset>
                 </SidebarProvider>
                 <FlashToaster />
+                {/* Inside the Toaster, because it raises one. */}
+                <UpdateNotice />
             </Toaster>
         </TooltipProvider>
     );

@@ -5,6 +5,7 @@ namespace App\Http\Requests\Sales;
 use App\Enums\PaymentMethod;
 use App\Enums\SaleStatus;
 use App\Http\Requests\Concerns\ConvertsToBaseCurrency;
+use App\Http\Requests\Concerns\FilesUnderAReference;
 use App\Http\Requests\Concerns\NamesPayingBank;
 use App\Support\Money;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -15,6 +16,7 @@ use Illuminate\Validation\Rule;
 class SaleRequest extends FormRequest
 {
     use ConvertsToBaseCurrency;
+    use FilesUnderAReference;
     use NamesPayingBank;
 
     public function authorize(): bool
@@ -30,6 +32,11 @@ class SaleRequest extends FormRequest
         $currency = ['nullable', Rule::in($this->enterableCurrencies())];
 
         return [
+            // The filing reference. Prefilled with the next in sequence, and
+            // the user's to overwrite when their paperwork says otherwise;
+            // cleared, the sale keeps the number it already has.
+            'number' => $this->referenceRules('sales', $this->route('sale')),
+
             'sold_on' => ['required', 'date'],
 
             // Every sale names a buyer. Counter trade is the walk-in customer's,
@@ -81,6 +88,7 @@ class SaleRequest extends FormRequest
             'lines.*.product_id.distinct' => 'That product is already on this sale.',
             'currency.in' => 'There is no exchange rate on record for that currency.',
             'customer_id.required' => 'Say who bought it.',
+            ...$this->referenceMessages('sale'),
             ...$this->bankMessages(),
         ];
     }
@@ -138,6 +146,11 @@ class SaleRequest extends FormRequest
         return $total;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $this->trimReference();
+    }
+
     /**
      * A sale converts at the rate in force on the day it was sold, so a sale
      * entered late is still costed at the rate of the day the money changed
@@ -151,12 +164,15 @@ class SaleRequest extends FormRequest
     /**
      * Named `saleHeader` to avoid colliding with Request::header().
      *
-     * @return array{customer_id: int, sold_on: string, status: SaleStatus, payment_method: string, bank_id: int|null, amount_paid: string, notes: string|null, currency: string, exchange_rate: int}
+     * @return array{customer_id: int, number?: string, sold_on: string, status: SaleStatus, payment_method: string, bank_id: int|null, amount_paid: string, notes: string|null, currency: string, exchange_rate: int}
      */
     public function saleHeader(): array
     {
         return [
             'customer_id' => $this->integer('customer_id'),
+            // Left out entirely when blank, so the action can tell "file it
+            // under this" from "whatever it is filed under now".
+            ...($this->reference() === null ? [] : ['number' => $this->reference()]),
             'sold_on' => $this->date('sold_on')->toDateString(),
             'status' => $this->enum('status', SaleStatus::class) ?? SaleStatus::Ordered,
             'payment_method' => $this->string('payment_method')->toString(),

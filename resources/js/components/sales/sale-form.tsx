@@ -124,6 +124,10 @@ export function SaleForm({
 
     const form = useForm<SaleFormData>({
         customer_id: sale?.customer_id ?? customers[0]?.id ?? null,
+        // The reference the sale is filed under, editable from here. A new one
+        // opens on the next in sequence; the server hands it back if it is
+        // cleared, so the field can never lose a sale its number.
+        number: sale?.number ?? nextNumber ?? '',
         sold_on: sale?.sold_on ?? todayIso(),
         status: sale?.status ?? 'ordered',
         payment_method:
@@ -286,12 +290,7 @@ export function SaleForm({
             className="mx-auto flex w-full max-w-4xl flex-col gap-5"
         >
             <SheetHeader className="px-0">
-                <SheetTitle className="flex items-center gap-2">
-                    {editing ? 'Edit sale' : 'New sale'}
-                    <span className="font-mono text-sm font-normal text-muted-foreground">
-                        {sale?.number ?? nextNumber}
-                    </span>
-                </SheetTitle>
+                <SheetTitle>{editing ? 'Edit sale' : 'New sale'}</SheetTitle>
                 <SheetDescription>
                     {editing
                         ? 'Corrections put the stock back and take it out again to match.'
@@ -312,7 +311,24 @@ export function SaleForm({
                     )}
                 </FormField>
 
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-3">
+                    <FormField
+                        label="Reference"
+                        error={form.errors.number}
+                        description="Yours to change."
+                    >
+                        {(control) => (
+                            <Input
+                                {...control}
+                                className="font-mono"
+                                value={form.data.number}
+                                onChange={(event) =>
+                                    form.setData('number', event.target.value)
+                                }
+                            />
+                        )}
+                    </FormField>
+
                     <FormField
                         label="Customer"
                         error={form.errors.customer_id}

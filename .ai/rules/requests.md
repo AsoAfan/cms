@@ -15,7 +15,7 @@ Override `currencyDate()` to the document's own date column (`invoiced_on`/`sold
 Everything downstream — Actions, Services, Models, App\Queries, Csv — must only ever see base-currency minor units. An arch test enforces it.
 
 ## A bank is required on card and transfer, and forbidden on cash
-`PaymentMethod::usesBank()` is the ONE place that decides which methods move through an account. Every request that takes a payment reads it through `App\Http\Requests\Concerns\NamesPayingBank` — `bankRules()` in `rules()`, `...$this->bankMessages()` in `messages()`, `bankId()` in the payload. Never restate the rule per request; a rule enforced on three of four forms leaves untraceable rows on the fourth.
+`PaymentMethod::usesBank()` is the ONE place that decides which methods move through an account. Every request that records money moving — a sale, a quick sale, a **purchase**, an expense, a customer repayment — reads it through `App\Http\Requests\Concerns\NamesPayingBank` — `bankRules()` in `rules()`, `...$this->bankMessages()` in `messages()`, `bankId()` in the payload. Never restate the rule per request; a rule enforced on three of four forms leaves untraceable rows on the fourth.
 
 Card/transfer → `required`. Cash → `prohibited`, because a bank left behind by switching the method is a stale value, not a detail somebody meant to record. An empty string passes `prohibited`, which is what lets a form send `bank_id: ''` for cash.
 

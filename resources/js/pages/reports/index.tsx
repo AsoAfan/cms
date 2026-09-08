@@ -7,12 +7,19 @@ import {
     ActivityTable,
     combineActivity,
 } from '@/components/reports/activity-table';
+import { BankBalances } from '@/components/reports/bank-balances';
 import { ReportPeriodFilter } from '@/components/reports/report-period-filter';
 import { StatTile } from '@/components/reports/stat-tile';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppLayout from '@/layouts/app-layout';
 import type { BreadcrumbItem } from '@/types';
-import type { Activity, CashFlow, PeriodProps } from '@/types/reports';
+import type {
+    Activity,
+    BankBalances as BankBalancesProps,
+    CashFlow,
+    GoodsOwed,
+    PeriodProps,
+} from '@/types/reports';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Reports' }];
 
@@ -38,12 +45,18 @@ export default function Reports({
     previous,
     activity,
     owed,
+    goodsOwed,
+    bankBalances,
 }: PeriodProps & {
     cashFlow: CashFlow;
     previous: CashFlow;
     activity: Activity;
     /** What customers owe today — see `CustomerBalanceQuery`. */
     owed: number;
+    /** What the shop owes in goods — see `GoodsOwedQuery`. */
+    goodsOwed: GoodsOwed;
+    /** What the accounts hold today — see `BankBalanceQuery`. */
+    bankBalances: BankBalancesProps;
 }) {
     const url = usePage().url;
     const combined = useMemo(() => combineActivity(activity), [activity]);
@@ -127,7 +140,39 @@ export default function Reports({
                                     : 'Out on customer loans'
                             }
                         />
+                        {/* The mirror of it, and the reason it is here: goods
+                            sold that were never bought. Shown only when there
+                            are some — a permanent zero is not news, and a shop
+                            that owes nothing has nothing to act on. */}
+                        {goodsOwed.items > 0 && (
+                            <StatTile
+                                label="Owed by you"
+                                value={goodsOwed.value}
+                                money
+                                hint={`${goodsOwed.items} ${
+                                    goodsOwed.items === 1 ? 'item' : 'items'
+                                } sold and not in stock`}
+                            />
+                        )}
+                        {/* A position too, and shown only once there is an
+                            account to show — a zero tile on a shop that deals
+                            in cash is a figure about nothing. */}
+                        {bankBalances.accounts.length > 0 && (
+                            <StatTile
+                                label="In the bank"
+                                value={bankBalances.total}
+                                money
+                                colored
+                                hint={`Across ${bankBalances.accounts.length} ${
+                                    bankBalances.accounts.length === 1
+                                        ? 'account'
+                                        : 'accounts'
+                                }`}
+                            />
+                        )}
                     </div>
+
+                    <BankBalances {...bankBalances} />
 
                     <ActivityTable
                         tab="all"

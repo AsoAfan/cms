@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\PaymentMethod;
 use App\Enums\SaleStatus;
+use App\Models\Concerns\FiledUnderAReference;
 use App\Services\CurrencyService;
 use App\Support\ExchangeRates;
 use App\Support\Money;
@@ -66,6 +67,8 @@ use Illuminate\Support\Carbon;
 ])]
 class Sale extends Model
 {
+    use FiledUnderAReference;
+
     /** @use HasFactory<SaleFactory> */
     use HasFactory;
 
@@ -250,10 +253,8 @@ class Sale extends Model
         return (int) $this->lines->sum('quantity');
     }
 
-    public static function nextNumber(): string
+    protected static function referencePrefix(): string
     {
-        $latest = (int) static::query()->max('id');
-
-        return sprintf('SAL-%05d', $latest + 1);
+        return 'SAL-';
     }
 }

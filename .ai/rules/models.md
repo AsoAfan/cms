@@ -3,6 +3,7 @@ paths:
   - app/Models/Sale.php
   - app/Models/Currency.php
   - app/Models/Bank.php
+  - 'app/Models/*.php'
 ---
 
 # Models
@@ -30,6 +31,15 @@ A currency cannot be removed while it is the base or named on a document. Removi
 
 Only `name` is required, and it is unique — it is the identity on every dropdown. `account_number` and `notes` are filing.
 
-`bank_id` sits on the three tables that carry `payment_method`: `sales`, `expenses`, `customer_payments`. Purchases are deliberately excluded — they have no payment method at all, so giving one a bank would mean inventing the other first. `restrictOnDelete` throughout, with `Bank::isInUse()` letting the controller say so plainly rather than surfacing the FK as a 500.
+`bank_id` sits on all four tables that carry `payment_method`: `sales`, `purchases`, `expenses`, `customer_payments`. ~~Purchases are deliberately excluded~~ → **a purchase names how it was paid and out of which account too**, because money out of an account is the other half of money into one and a balance that never pays for stock only ever climbs. `restrictOnDelete` throughout, with `Bank::isInUse()` letting the controller say so plainly rather than surfacing the FK as a 500 — it counts manual movements as well, since those are the account's balance as much as a sale is.
 
 A bank is NOT a currency. An account held in dollars still records base-currency minor units like everything else.
+
+What an account holds is **never stored**: `BankBalanceQuery` derives it, and `bank_adjustments` carries the opening balance and anything else trade does not explain. See `.ai/rules/queries.md`.
+
+## A document reference is the user's to set
+`purchases.number` / `sales.number` are prefilled, not owned by the system. The drawer opens on `Purchase::nextNumber()` / `Sale::nextNumber()` and the field is editable, on create and on edit alike; the Form Request validates it `nullable` + `unique` (ignoring the row being edited), and a blank one is left out of the header so `Save*Action` keeps the number the document already has. Never re-assign a number the user typed.
+
+`nextNumber()` (in `App\Models\Concerns\FiledUnderAReference`) is **the greatest reference on record plus one**, NOT `max('id') + 1` — counting off the id hands back a number from behind whatever was last filed. Greatest is by `LENGTH(number)` first and then the characters, so PUR-00010 outranks PUR-9 without the database parsing the column.
+
+**Whatever shape that reference is written in is the shape the next one takes**, padding included: after INV/2026/014 comes INV/2026/015, after 999 comes 1000. A model supplies only `referencePrefix()`, which names the sequence used when the table is empty or nothing on it ends in a number. Taken numbers are stepped over — collations differ on case, and a suggestion that fails the unique rule is worse than none.

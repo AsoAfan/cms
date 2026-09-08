@@ -3,6 +3,7 @@ import { ArrowLeft, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { StatusStepper } from '@/components/document-status';
+import { EditableReference } from '@/components/editable-reference';
 import { MoneyDisplay, MoneyReview } from '@/components/money-display';
 import { PurchaseDrawer } from '@/components/purchases/purchase-drawer';
 import { Button } from '@/components/ui/button';
@@ -17,10 +18,17 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import AppLayout from '@/layouts/app-layout';
-import { destroy, index, status as statusRoute } from '@/routes/purchases';
+import {
+    destroy,
+    index,
+    rename,
+    status as statusRoute,
+} from '@/routes/purchases';
 import type { BreadcrumbItem } from '@/types';
+import type { BankOption } from '@/types/banks';
 import type {
     AllocationMethodOption,
+    PaymentMethodOption,
     ProductOption,
     PurchaseDetail,
     PurchaseStatusOption,
@@ -40,11 +48,15 @@ export default function PurchasesShow({
     products,
     allocationMethods,
     statuses,
+    paymentMethods,
+    banks,
 }: {
     purchase: PurchaseDetail;
     products: ProductOption[];
     allocationMethods: AllocationMethodOption[];
     statuses: PurchaseStatusOption[];
+    paymentMethods: PaymentMethodOption[];
+    banks: BankOption[];
 }) {
     const [editing, setEditing] = useState(false);
     const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -136,9 +148,11 @@ export default function PurchasesShow({
                 <CardContent className="flex flex-col gap-6 py-2">
                     <header className="flex flex-wrap items-start justify-between gap-4">
                         <div>
-                            <h1 className="font-mono text-2xl font-semibold tracking-tight">
-                                {purchase.number}
-                            </h1>
+                            <EditableReference
+                                value={purchase.number}
+                                url={rename.url(purchase.id)}
+                                noun="invoice"
+                            />
                             <p className="text-sm text-muted-foreground">
                                 Invoiced {purchase.invoiced_on}
                             </p>
@@ -149,6 +163,15 @@ export default function PurchasesShow({
                                 <dt className="text-muted-foreground">Items</dt>
                                 <dd className="tabular-nums">
                                     {purchase.total_quantity}
+                                </dd>
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <dt className="text-muted-foreground">
+                                    Paid by
+                                </dt>
+                                <dd>
+                                    {purchase.payment_method_label}
+                                    {purchase.bank && ` · ${purchase.bank}`}
                                 </dd>
                             </div>
                             {purchase.currency !== purchase.base_currency && (
@@ -281,6 +304,8 @@ export default function PurchasesShow({
                 products={products}
                 allocationMethods={allocationMethods}
                 statuses={statuses}
+                paymentMethods={paymentMethods}
+                banks={banks}
                 purchase={purchase}
             />
         </>

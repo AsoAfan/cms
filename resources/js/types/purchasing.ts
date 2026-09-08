@@ -1,13 +1,23 @@
-import type { DocumentStatus, DocumentStatusOption } from '@/types/documents';
+import type { BankOption } from '@/types/banks';
+import type {
+    DocumentStatus,
+    DocumentStatusOption,
+    PaymentMethodOption,
+} from '@/types/documents';
 
 export type PurchaseStatus = DocumentStatus;
 export type PurchaseStatusOption = DocumentStatusOption;
+
+export type { PaymentMethodOption };
 
 export type PurchaseListRow = {
     id: number;
     number: string;
     invoiced_on: string;
     status: PurchaseStatus;
+    payment_method: string;
+    /** Which account paid for it. Null on cash. */
+    bank: string | null;
     lines_count: number;
     /** Minor units. */
     total: number;
@@ -18,6 +28,18 @@ export type ProductOption = {
     name: string;
     /** A base-currency decimal string, prefilled onto a new line. */
     cost_price: string;
+};
+
+/**
+ * A line a new invoice opens with, from a screen that already knows what has to
+ * be bought — the loans list, filling in the order it is telling you to place.
+ *
+ * Only the product and how many: the cost comes off the catalogue when the form
+ * builds the line, exactly as picking the product by hand would fill it in.
+ */
+export type PurchaseLineSeed = {
+    product_id: number;
+    quantity: number;
 };
 
 export type AllocationMethodOption = {
@@ -48,8 +70,19 @@ export type AdditionalCostForm = {
 };
 
 export type PurchaseFormData = {
+    /**
+     * What this invoice is filed under. Prefilled with the next in sequence and
+     * editable; left empty, the server keeps the number the invoice already has.
+     */
+    number: string;
     invoiced_on: string;
     status: PurchaseStatus;
+    payment_method: string;
+    /**
+     * Which account paid for it. Empty on cash — a select cannot hold null,
+     * and the server reads an empty string as no bank.
+     */
+    bank_id: string;
     /** What the invoice was written in, and the default for every amount on it. */
     currency: string;
     notes: string;
@@ -86,6 +119,12 @@ export type PurchaseDetail = {
     number: string;
     invoiced_on: string;
     status: PurchaseStatus;
+    payment_method: string;
+    payment_method_label: string;
+    /** The account it was paid out of, named. Null on cash. */
+    bank: string | null;
+    /** The same account as the drawer's select holds it: empty means none. */
+    bank_id: string;
     /** What it was invoiced in, and the rate it was converted at. */
     currency: string;
     exchange_rate: string;
@@ -100,4 +139,21 @@ export type PurchaseDetail = {
     additional_costs: PurchaseAdditionalCostDetail[];
     /** Stored amounts are in this currency, so the form reopens in it. */
     base_currency: string;
+};
+
+/**
+ * What a screen needs to open the purchase drawer for a NEW invoice — mirrors
+ * App\Http\Concerns\InteractsWithPurchaseForm::newPurchaseOptions().
+ *
+ * The purchases list is not the only screen that writes one: the loans list
+ * opens the drawer prefilled with the order it is telling you to place, and
+ * both are served the same options so the drawer is one form everywhere.
+ */
+export type PurchaseFormOptions = {
+    products: ProductOption[];
+    allocationMethods: AllocationMethodOption[];
+    statuses: PurchaseStatusOption[];
+    paymentMethods: PaymentMethodOption[];
+    banks: BankOption[];
+    nextNumber: string;
 };

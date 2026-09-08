@@ -7,6 +7,7 @@ use App\Http\Concerns\InteractsWithReports;
 use App\Queries\ActivityQuery;
 use App\Queries\CashFlowQuery;
 use App\Queries\CustomerBalanceQuery;
+use App\Queries\GoodsOwedQuery;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -25,6 +26,7 @@ class DashboardController extends Controller
         private readonly CashFlowQuery $cashFlow,
         private readonly ActivityQuery $activity,
         private readonly CustomerBalanceQuery $balances,
+        private readonly GoodsOwedQuery $goodsOwed,
     ) {}
 
     /**
@@ -51,6 +53,29 @@ class DashboardController extends Controller
             // A position rather than a flow — what is unpaid today, whatever
             // window the tiles are showing.
             'owed' => $this->balances->total()->minorUnits,
+            // The mirror of it: goods sold that are not on the shelf, valued
+            // at what they will cost to buy in. A loan the business is carrying
+            // rather than one it is owed — see `GoodsOwedQuery`.
+            'goodsOwed' => $this->owedInGoods(),
         ]);
+    }
+
+    /**
+     * What the business owes in goods, for the tile.
+     *
+     * A position like the receivable beside it — what has been sold and not
+     * bought — so it takes no period either.
+     *
+     * @return array{value: int, items: int, products: int}
+     */
+    private function owedInGoods(): array
+    {
+        $summary = GoodsOwedQuery::summarise($this->goodsOwed->get());
+
+        return [
+            'value' => $summary['value']->minorUnits,
+            'items' => $summary['items'],
+            'products' => $summary['products'],
+        ];
     }
 }

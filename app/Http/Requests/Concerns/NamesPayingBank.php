@@ -9,8 +9,9 @@ use Illuminate\Validation\Rule;
  * Requires a bank on the payment methods that move through one.
  *
  * The rule is derived from `PaymentMethod::usesBank()` rather than restated per
- * request, so every screen that takes a payment — a sale, a quick sale, an
- * expense, a customer repayment — asks for a bank on exactly the same methods.
+ * request, so every screen that records money moving — a sale, a quick sale, a
+ * purchase, an expense, a customer repayment — asks for a bank on exactly the
+ * same methods.
  *
  * Both directions are enforced, and both matter:
  *

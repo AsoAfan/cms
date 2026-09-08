@@ -427,6 +427,117 @@ it('hands each sale its own number', function () {
     expect(Sale::query()->pluck('number')->all())->toBe(['SAL-00001', 'SAL-00002']);
 });
 
+it('files a sale under the reference it was given', function () {
+    $sale = recordSale(['number' => 'INV/2026/014']);
+
+    expect($sale->number)->toBe('INV/2026/014');
+});
+
+it('changes the reference on a sale already recorded', function () {
+    $sale = recordSale();
+
+    $this->put("/sales/{$sale->id}", salePayload(['number' => 'SAL-00099']))
+        ->assertSessionHasNoErrors();
+
+    expect($sale->fresh()->number)->toBe('SAL-00099');
+});
+
+it('keeps the number a sale already has when the reference is cleared', function () {
+    $sale = recordSale();
+
+    $this->put("/sales/{$sale->id}", salePayload(['number' => '']))
+        ->assertSessionHasNoErrors();
+
+    expect($sale->fresh()->number)->toBe('SAL-00001');
+});
+
+it('refuses a reference another sale is already filed under', function () {
+    recordSale(['number' => 'SAL-00042']);
+
+    $this->post('/sales', salePayload(['number' => 'SAL-00042']))
+        ->assertSessionHasErrors('number');
+
+    expect(Sale::query()->count())->toBe(1);
+});
+
+it('lets a sale keep its own reference through an edit', function () {
+    $sale = recordSale(['number' => 'SAL-00042']);
+
+    $this->put("/sales/{$sale->id}", salePayload(['number' => 'SAL-00042']))
+        ->assertSessionHasNoErrors();
+
+    expect($sale->fresh()->number)->toBe('SAL-00042');
+});
+
+it('renames a sale in place, leaving the stock it moved alone', function () {
+    stockUp($this->product, 10, '18.00');
+    $sale = recordSale(['status' => SaleStatus::OnTheWay->value]);
+    $movements = StockMovement::query()->count();
+
+    // Spaces around it are typing, not part of the reference.
+    $this->patch("/sales/{$sale->id}/number", ['number' => '  SAL-00777  '])
+        ->assertSessionHasNoErrors();
+
+    expect($sale->fresh()->number)->toBe('SAL-00777')
+        // Renaming is filing. Sending it back through the save action would
+        // have put the goods back and taken them out again.
+        ->and(StockMovement::query()->count())->toBe($movements)
+        ->and($this->onHand->forProduct($this->product))->toBe(8);
+});
+
+it('refuses to rename a sale onto a reference already in use', function () {
+    $first = recordSale();
+    $second = recordSale();
+
+    $this->patch("/sales/{$second->id}/number", ['number' => $first->number])
+        ->assertSessionHasErrors('number');
+
+    expect($second->fresh()->number)->toBe('SAL-00002');
+});
+
+it('refuses to leave a sale with no reference at all', function () {
+    $sale = recordSale();
+
+    $this->patch("/sales/{$sale->id}/number", ['number' => ' '])
+        ->assertSessionHasErrors('number');
+
+    expect($sale->fresh()->number)->toBe('SAL-00001');
+});
+
+it('carries on counting from a reference typed in by hand', function () {
+    recordSale(['number' => 'SAL-00042']);
+
+    expect(Sale::nextNumber())->toBe('SAL-00043');
+});
+
+it('counts off the greatest reference, not the last one written', function () {
+    // 'SAL-9' sorts above 'SAL-00010' on characters alone, and following it
+    // would hand back a number the sale before last already used.
+    recordSale(['number' => 'SAL-00010']);
+    recordSale(['number' => 'SAL-9']);
+
+    expect(Sale::nextNumber())->toBe('SAL-00011');
+});
+
+it('follows a reference written in a shape of its own', function () {
+    recordSale(['number' => 'INV/2026/014']);
+
+    // Same shape, same padding — the next page of their book, not ours.
+    expect(Sale::nextNumber())->toBe('INV/2026/015');
+});
+
+it('carries a reference over into another digit', function () {
+    recordSale(['number' => '999']);
+
+    expect(Sale::nextNumber())->toBe('1000');
+});
+
+it('starts its own sequence when no reference has a number in it', function () {
+    recordSale(['number' => 'OPENING']);
+
+    expect(Sale::nextNumber())->toBe('SAL-00001');
+});
+
 it('filters sales by status', function () {
     stockUp($this->product, 10, '18.00');
 

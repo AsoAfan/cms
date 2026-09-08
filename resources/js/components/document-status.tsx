@@ -108,11 +108,22 @@ export function StatusStepper({
     statuses,
     onChange,
     busy,
+    blocked,
+    blockedReason,
 }: {
     status: DocumentStatus;
     statuses: DocumentStatusOption[];
     onChange: (status: DocumentStatus) => void;
     busy?: boolean;
+    /**
+     * Statuses the server would refuse — a sale short of stock cannot be sent
+     * out. Disabled here rather than left clickable, because a move that always
+     * fails is not a move: the reason belongs on the button, not in a toast
+     * after the click.
+     */
+    blocked?: DocumentStatus[];
+    /** Why, as the button's tooltip. */
+    blockedReason?: string;
 }) {
     const position = SEQUENCE.indexOf(status);
 
@@ -122,6 +133,7 @@ export function StatusStepper({
                 const { icon: Icon } = PRESENTATION[option.value];
                 const current = option.value === status;
                 const done = index < position;
+                const unavailable = blocked?.includes(option.value) ?? false;
 
                 return (
                     <Button
@@ -129,8 +141,12 @@ export function StatusStepper({
                         type="button"
                         size="sm"
                         variant={current ? 'default' : 'ghost'}
-                        disabled={busy || current}
-                        title={option.description}
+                        disabled={busy || current || unavailable}
+                        title={
+                            unavailable
+                                ? (blockedReason ?? option.description)
+                                : option.description
+                        }
                         className={cn(
                             !current && done && 'text-muted-foreground',
                         )}

@@ -51,6 +51,11 @@ export type SaleLineForm = {
 export type SaleFormData = {
     /** Every sale names a buyer; counter trade is the walk-in customer's. */
     customer_id: number | null;
+    /**
+     * What this sale is filed under. Prefilled with the next in sequence and
+     * editable; left empty, the server keeps the number the sale already has.
+     */
+    number: string;
     sold_on: string;
     status: SaleStatus;
     payment_method: string;
@@ -75,6 +80,21 @@ export type SaleFormData = {
     currency: string;
     notes: string | null;
     lines: SaleLineForm[];
+};
+
+/**
+ * One product a sale is short of — mirrors a row from App\Queries\GoodsOwedQuery.
+ *
+ * `quantity` is what the whole sale asks for, not one line's worth: two lines
+ * naming the same product are short between them.
+ */
+export type SaleShortfall = {
+    product: string;
+    quantity: number;
+    on_hand: number;
+    short: number;
+    /** Minor units, at cost — what making good on it will cost. */
+    value: number;
 };
 
 export type SaleDetailLine = {
@@ -123,6 +143,14 @@ export type SaleDetail = {
     notes: string | null;
     /** When the goods left the ledger, or null while they have not. */
     committed_at: string | null;
+    /**
+     * What this sale sold that is not on the shelf — the loan the shop is
+     * carrying until it buys the stock in. Empty once the goods have gone out.
+     */
+    owed: SaleShortfall[];
+    /** Those rows added up: what they cost to buy, and how many items. */
+    owed_value: number;
+    owed_items: number;
     total: number;
     total_quantity: number;
     cost_of_goods_sold: number;

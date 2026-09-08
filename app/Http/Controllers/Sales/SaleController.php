@@ -9,6 +9,7 @@ use App\Enums\PaymentMethod;
 use App\Enums\SaleStatus;
 use App\Exceptions\SaleLedgerException;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Sales\SaleNumberRequest;
 use App\Http\Requests\Sales\SaleRequest;
 use App\Http\Requests\Sales\SaleStatusRequest;
 use App\Models\Bank;
@@ -16,6 +17,7 @@ use App\Models\Customer;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleLine;
+use App\Queries\GoodsOwedQuery;
 use App\Queries\StockOnHandQuery;
 use App\Services\CurrencyService;
 use App\Support\Flash;
@@ -33,6 +35,7 @@ class SaleController extends Controller
 {
     public function __construct(
         private readonly StockOnHandQuery $onHand,
+        private readonly GoodsOwedQuery $goodsOwed,
         private readonly CurrencyService $currencies,
     ) {}
 
@@ -124,6 +127,23 @@ class SaleController extends Controller
     }
 
     /**
+     * Refile the sale under another reference, edited in place on the invoice.
+     *
+     * Deliberately not `update()`: the reference is filing, not ledger data.
+     * Sending it back through `SaveSaleAction` would put the stock back and
+     * take it out again to rename a sale, which can fail outright — and a
+     * reference must always be correctable.
+     */
+    public function rename(SaleNumberRequest $request, Sale $sale): RedirectResponse
+    {
+        $sale->update(['number' => $request->reference()]);
+
+        Flash::success("Filed under {$sale->number}.");
+
+        return back();
+    }
+
+    /**
      * Move the sale along. Marking it on its way is what takes the stock out;
      * putting it back to ordered returns it to the shelf.
      */
@@ -203,6 +223,10 @@ class SaleController extends Controller
             'exchange_rate' => $sale->exchangeRate(),
             'notes' => $sale->notes,
             'committed_at' => $sale->committed_at?->toDateTimeString(),
+            // What this sale sold that is not on the shelf: goods the shop owes
+            // and has to buy before the sale can be sent out. Derived, so it
+            // empties itself the moment the stock is purchased.
+            ...$this->owedOnSale($sale),
             'total' => $sale->total()->minorUnits,
             'total_quantity' => $sale->totalQuantity(),
             'cost_of_goods_sold' => $sale->costOfGoodsSold()->minorUnits,
@@ -221,6 +245,35 @@ class SaleController extends Controller
                 'discount_decimal' => $line->discount->toDecimal(),
             ])->values(),
             'base_currency' => $base,
+        ];
+    }
+
+    /**
+     * What this sale sells that the shop has not got.
+     *
+     * Measured exactly as `IssueSaleAction` will measure it, so the screen and
+     * the server never disagree about whether the sale can go out — the page
+     * disables the two statuses that release stock on the strength of this.
+     *
+     * @return array{owed: list<array{product: string, quantity: int, on_hand: int, short: int, value: int}>, owed_value: int, owed_items: int}
+     */
+    private function owedOnSale(Sale $sale): array
+    {
+        $rows = $this->goodsOwed->forSale($sale);
+        $summary = GoodsOwedQuery::summarise($rows);
+
+        return [
+            'owed' => array_map(static fn (array $row): array => [
+                'product' => $row['product'],
+                'quantity' => $row['quantity'],
+                'on_hand' => $row['on_hand'],
+                'short' => $row['short'],
+                'value' => $row['value']->minorUnits,
+            ], $rows),
+            // At cost: what it will take to make good on the sale, not what the
+            // customer is paying for it.
+            'owed_value' => $summary['value']->minorUnits,
+            'owed_items' => $summary['items'],
         ];
     }
 

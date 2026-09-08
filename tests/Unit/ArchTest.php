@@ -36,7 +36,9 @@ arch('enums live in App\Enums')
 
 arch('models live in App\Models')
     ->expect('App\Models')
-    ->toExtend(Model::class);
+    ->toExtend(Model::class)
+    // Traits shared between models, not models themselves.
+    ->ignoring('App\Models\Concerns');
 
 arch('casts implement the cast contract')
     ->expect('App\Casts')

@@ -7,6 +7,7 @@ use App\Models\CustomerPayment;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\Product;
+use App\Models\Purchase;
 use App\Models\Sale;
 use App\Models\User;
 use App\Services\InventoryService;
@@ -56,6 +57,7 @@ it('lists the banks with what has been paid through each', function () {
             ->where('banks.0.name', 'Cihan Bank')
             ->where('banks.0.expenses_count', 1)
             ->where('banks.0.sales_count', 0)
+            ->where('banks.0.purchases_count', 0)
             ->where('banks.0.payments_count', 0)
         );
 });
@@ -273,6 +275,59 @@ it('refuses a quick sale on card with no bank named', function () {
     ])->assertSessionHasErrors('bank_id');
 
     expect(Sale::query()->count())->toBe(0);
+});
+
+it('records the bank an invoice was paid out of', function () {
+    $this->post('/purchases', [
+        'invoiced_on' => '2026-02-01',
+        'status' => 'ordered',
+        'payment_method' => PaymentMethod::Transfer->value,
+        'bank_id' => $this->bank->id,
+        'notes' => null,
+        'lines' => [[
+            'product_id' => $this->product->id,
+            'quantity' => 10,
+            'unit_cost' => '18.00',
+            'discount' => '0',
+        ]],
+    ])->assertSessionHasNoErrors();
+
+    expect(Purchase::query()->firstOrFail()->bank_id)->toBe($this->bank->id);
+});
+
+it('refuses an invoice paid by card with no bank named', function () {
+    $this->post('/purchases', [
+        'invoiced_on' => '2026-02-01',
+        'status' => 'ordered',
+        'payment_method' => PaymentMethod::Card->value,
+        'notes' => null,
+        'lines' => [[
+            'product_id' => $this->product->id,
+            'quantity' => 10,
+            'unit_cost' => '18.00',
+            'discount' => '0',
+        ]],
+    ])->assertSessionHasErrors('bank_id');
+
+    expect(Purchase::query()->count())->toBe(0);
+});
+
+it('refuses a bank on an invoice paid in cash', function () {
+    $this->post('/purchases', [
+        'invoiced_on' => '2026-02-01',
+        'status' => 'ordered',
+        'payment_method' => PaymentMethod::Cash->value,
+        'bank_id' => $this->bank->id,
+        'notes' => null,
+        'lines' => [[
+            'product_id' => $this->product->id,
+            'quantity' => 10,
+            'unit_cost' => '18.00',
+            'discount' => '0',
+        ]],
+    ])->assertSessionHasErrors('bank_id');
+
+    expect(Purchase::query()->count())->toBe(0);
 });
 
 it('records the bank a customer repayment came into', function () {

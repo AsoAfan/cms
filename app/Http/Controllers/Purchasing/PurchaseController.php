@@ -5,14 +5,15 @@ namespace App\Http\Controllers\Purchasing;
 use App\Actions\Purchasing\RevertPurchaseAction;
 use App\Actions\Purchasing\SavePurchaseAction;
 use App\Actions\Purchasing\SetPurchaseStatusAction;
-use App\Enums\CostAllocationMethod;
 use App\Enums\PurchaseStatus;
 use App\Exceptions\PurchaseLedgerException;
 use App\Exceptions\StockAlreadyConsumedException;
+use App\Http\Concerns\InteractsWithPurchaseForm;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Purchasing\PurchaseNumberRequest;
 use App\Http\Requests\Purchasing\PurchaseRequest;
 use App\Http\Requests\Purchasing\PurchaseStatusRequest;
-use App\Models\Product;
+use App\Models\Bank;
 use App\Models\Purchase;
 use App\Models\PurchaseAdditionalCost;
 use App\Models\PurchaseLine;
@@ -29,12 +30,14 @@ use Inertia\Response;
  */
 class PurchaseController extends Controller
 {
+    use InteractsWithPurchaseForm;
+
     public function index(): Response
     {
-        $table = $this->table(Purchase::query()->withCount('lines'))
+        $table = $this->table(Purchase::query()->with('bank:id,name')->withCount('lines'))
             ->searchable(['number', 'notes'])
             ->sortable(['number', 'invoiced_on', 'status'], default: 'invoiced_on', direction: 'desc')
-            ->filterable(['status']);
+            ->filterable(['status', 'payment_method', 'bank_id']);
 
         $paginator = $table->paginate();
 
@@ -43,6 +46,9 @@ class PurchaseController extends Controller
             'number' => $purchase->number,
             'invoiced_on' => $purchase->invoiced_on->toDateString(),
             'status' => $purchase->status->value,
+            'payment_method' => $purchase->payment_method->label(),
+            // Which account it was paid out of. Null on cash.
+            'bank' => $purchase->bank?->name,
             'lines_count' => $purchase->lines_count,
             'total' => $purchase->total()->minorUnits,
         ]);
@@ -53,7 +59,7 @@ class PurchaseController extends Controller
             // The next reference, so the drawer can show what it is about to
             // write rather than a blank where the number will be.
             'nextNumber' => Purchase::nextNumber(),
-            ...$this->formOptions(),
+            ...$this->purchaseFormOptions(),
         ]);
     }
 
@@ -82,7 +88,7 @@ class PurchaseController extends Controller
 
         return Inertia::render('purchases/show', [
             'purchase' => $this->detail($purchase),
-            ...$this->formOptions(),
+            ...$this->purchaseFormOptions(),
         ]);
     }
 
@@ -102,6 +108,23 @@ class PurchaseController extends Controller
         }
 
         Flash::success("{$purchase->number} updated.");
+
+        return back();
+    }
+
+    /**
+     * Refile the invoice under another reference, edited in place on the page.
+     *
+     * Deliberately not `update()`: the reference is filing, not ledger data.
+     * Sending it back through `SavePurchaseAction` would take the stock out and
+     * put it back to rename an invoice, which an invoice whose goods have been
+     * sold on refuses outright — and a reference must always be correctable.
+     */
+    public function rename(PurchaseNumberRequest $request, Purchase $purchase): RedirectResponse
+    {
+        $purchase->update(['number' => $request->reference()]);
+
+        Flash::success("Filed under {$purchase->number}.");
 
         return back();
     }
@@ -165,6 +188,12 @@ class PurchaseController extends Controller
             'number' => $purchase->number,
             'invoiced_on' => $purchase->invoiced_on->toDateString(),
             'status' => $purchase->status->value,
+            'payment_method' => $purchase->payment_method->value,
+            'payment_method_label' => $purchase->payment_method->label(),
+            'bank' => $purchase->bank?->name,
+            // A string because the drawer's select holds one, and a select
+            // cannot hold null — empty is how it says "no bank".
+            'bank_id' => $purchase->bank_id === null ? '' : (string) $purchase->bank_id,
             'currency' => $purchase->currency,
             'exchange_rate' => $purchase->exchangeRate(),
             'notes' => $purchase->notes,
@@ -196,31 +225,6 @@ class PurchaseController extends Controller
                 ]
             )->values(),
             'base_currency' => $base,
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function formOptions(): array
-    {
-        return [
-            'products' => Product::query()
-                ->orderBy('name')
-                ->get(['id', 'name', 'cost_price'])
-                ->map(fn (Product $product): array => [
-                    'id' => $product->id,
-                    'name' => $product->name,
-                    'cost_price' => $product->cost_price->toDecimal(),
-                ]),
-            'allocationMethods' => collect(CostAllocationMethod::cases())->map(
-                fn (CostAllocationMethod $method): array => [
-                    'value' => $method->value,
-                    'label' => $method->label(),
-                    'description' => $method->description(),
-                ]
-            ),
-            'statuses' => PurchaseStatus::options(),
         ];
     }
 }

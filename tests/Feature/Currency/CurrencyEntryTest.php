@@ -43,6 +43,7 @@ it('converts a purchase typed in dollars into dinars', function () {
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
         'status' => PurchaseStatus::Ordered->value,
+        'payment_method' => PaymentMethod::Cash->value,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[
@@ -68,6 +69,7 @@ it('records the base currency and a rate of one when nothing is converted', func
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
         'status' => PurchaseStatus::Ordered->value,
+        'payment_method' => PaymentMethod::Cash->value,
         'notes' => null,
         'lines' => [[
             'product_id' => $this->product->id,
@@ -93,6 +95,7 @@ it('converts each amount by its own currency, not the document header', function
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
         'status' => PurchaseStatus::Ordered->value,
+        'payment_method' => PaymentMethod::Cash->value,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[
@@ -122,6 +125,7 @@ it('puts the converted cost on the shelf when the goods arrive', function () {
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
         'status' => PurchaseStatus::Proceed->value,
+        'payment_method' => PaymentMethod::Cash->value,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[
@@ -210,6 +214,7 @@ it('converts a back-dated invoice at the rate in force on its own date', functio
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
         'status' => PurchaseStatus::Ordered->value,
+        'payment_method' => PaymentMethod::Cash->value,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[
@@ -234,6 +239,7 @@ it('uses the newer rate for a document dated after it', function () {
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-03-15',
         'status' => PurchaseStatus::Ordered->value,
+        'payment_method' => PaymentMethod::Cash->value,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[
@@ -254,6 +260,7 @@ it('refuses a currency nobody has recorded a rate for', function () {
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
         'status' => PurchaseStatus::Ordered->value,
+        'payment_method' => PaymentMethod::Cash->value,
         'notes' => null,
         'currency' => 'EUR',
         'lines' => [[
@@ -317,6 +324,7 @@ it('still validates the amount as typed, in its own currency', function () {
         'supplier_id' => $this->supplier->id,
         'invoiced_on' => '2026-01-15',
         'status' => PurchaseStatus::Ordered->value,
+        'payment_method' => PaymentMethod::Cash->value,
         'notes' => null,
         'currency' => 'USD',
         'lines' => [[

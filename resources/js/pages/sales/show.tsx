@@ -1,8 +1,9 @@
 import { Head, Link, router, setLayoutProps } from '@inertiajs/react';
-import { ArrowLeft, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, PackageX, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { StatusStepper } from '@/components/document-status';
+import { EditableReference } from '@/components/editable-reference';
 import {
     MoneyDisplay,
     MoneyReview,
@@ -29,7 +30,8 @@ import {
 } from '@/components/ui/table';
 import AppLayout from '@/layouts/app-layout';
 import { show as showCustomer } from '@/routes/customers';
-import { destroy, index, status as statusRoute } from '@/routes/sales';
+import purchases from '@/routes/purchases';
+import { destroy, index, rename, status as statusRoute } from '@/routes/sales';
 import type { BreadcrumbItem } from '@/types';
 import type { BankOption } from '@/types/banks';
 import type { SaleCustomer } from '@/types/customers';
@@ -81,6 +83,12 @@ export default function SalesShow({
     // nothing off the shelf, so it has no cost yet.
     const gone = sale.committed_at !== null;
 
+    // Sold out of stock: the shop owes these goods and cannot send the sale
+    // out until it has bought them. The server refuses both statuses that
+    // release stock, so the buttons say so instead of failing on the click.
+    const owes = sale.owed.length > 0;
+    const owedReason = 'Buy the missing stock before this can go out.';
+
     function moveTo(next: string) {
         setMoving(true);
 
@@ -103,6 +111,8 @@ export default function SalesShow({
                         status={sale.status}
                         statuses={statuses}
                         busy={moving}
+                        blocked={owes ? ['on_the_way', 'proceed'] : undefined}
+                        blockedReason={owedReason}
                         onChange={moveTo}
                     />
 
@@ -138,6 +148,93 @@ export default function SalesShow({
                     </div>
                 </div>
 
+                {owes && (
+                    <Card className="border-destructive/40 bg-destructive/5">
+                        <CardContent className="flex flex-col gap-4">
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                                <div className="flex flex-col gap-1">
+                                    <p className="flex items-center gap-2 font-medium">
+                                        <PackageX className="size-4" />
+                                        Owed by you
+                                    </p>
+                                    <p className="max-w-prose text-sm text-muted-foreground">
+                                        {sale.owed_items}{' '}
+                                        {sale.owed_items === 1
+                                            ? 'item on this sale is'
+                                            : 'items on this sale are'}{' '}
+                                        not in stock. {owedReason}
+                                    </p>
+                                </div>
+
+                                <div className="text-right">
+                                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                                        At cost
+                                    </p>
+                                    <p className="text-xl font-semibold tracking-tight">
+                                        <MoneyDisplay
+                                            amount={sale.owed_value}
+                                        />
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="overflow-x-auto rounded-lg border bg-background">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Product</TableHead>
+                                            <TableHead className="text-right">
+                                                Sold
+                                            </TableHead>
+                                            <TableHead className="text-right">
+                                                In stock
+                                            </TableHead>
+                                            <TableHead className="text-right">
+                                                Short
+                                            </TableHead>
+                                            <TableHead className="text-right">
+                                                At cost
+                                            </TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {sale.owed.map((row) => (
+                                            <TableRow key={row.product}>
+                                                <TableCell className="font-medium">
+                                                    {row.product}
+                                                </TableCell>
+                                                <TableCell className="text-right tabular-nums">
+                                                    {row.quantity}
+                                                </TableCell>
+                                                <TableCell className="text-right tabular-nums">
+                                                    {row.on_hand}
+                                                </TableCell>
+                                                <TableCell className="text-right font-medium text-destructive tabular-nums">
+                                                    {row.short}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <MoneyDisplay
+                                                        amount={row.value}
+                                                    />
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="self-start"
+                                render={<Link href={purchases.index()} />}
+                            >
+                                Record a purchase
+                            </Button>
+                        </CardContent>
+                    </Card>
+                )}
+
                 {confirmingDelete && (
                     <Card className="border-destructive/40 bg-destructive/5">
                         <CardContent className="flex flex-wrap items-center justify-between gap-3">
@@ -172,9 +269,11 @@ export default function SalesShow({
                     <CardContent className="flex flex-col gap-6 py-2">
                         <header className="flex flex-wrap items-start justify-between gap-4">
                             <div>
-                                <h1 className="font-mono text-2xl font-semibold tracking-tight">
-                                    {sale.number}
-                                </h1>
+                                <EditableReference
+                                    value={sale.number}
+                                    url={rename.url(sale.id)}
+                                    noun="sale"
+                                />
                                 <p className="text-sm text-muted-foreground">
                                     Sold {sale.sold_on} to{' '}
                                     <Link

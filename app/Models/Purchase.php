@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Enums\PaymentMethod;
 use App\Enums\PurchaseStatus;
+use App\Models\Concerns\FiledUnderAReference;
 use App\Services\CurrencyService;
 use App\Support\ExchangeRates;
 use App\Support\Money;
@@ -11,6 +13,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
@@ -21,6 +24,8 @@ use Illuminate\Support\Carbon;
  * @property string $number
  * @property Carbon $invoiced_on
  * @property PurchaseStatus $status
+ * @property PaymentMethod $payment_method
+ * @property int|null $bank_id
  * @property string $currency
  * @property int $exchange_rate
  * @property string|null $notes
@@ -29,6 +34,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $updated_at
  * @property-read Collection<int, PurchaseLine> $lines
  * @property-read Collection<int, PurchaseAdditionalCost> $additionalCosts
+ * @property-read Bank|null $bank
  *
  * Aggregates the read models add with `withSum`, so a page of invoices costs a
  * fixed number of queries rather than one per row. Present only when the query
@@ -41,6 +47,8 @@ use Illuminate\Support\Carbon;
     'number',
     'invoiced_on',
     'status',
+    'payment_method',
+    'bank_id',
     'currency',
     'exchange_rate',
     'notes',
@@ -48,6 +56,8 @@ use Illuminate\Support\Carbon;
 ])]
 class Purchase extends Model
 {
+    use FiledUnderAReference;
+
     /** @use HasFactory<PurchaseFactory> */
     use HasFactory;
 
@@ -59,6 +69,7 @@ class Purchase extends Model
         return [
             'invoiced_on' => 'date',
             'status' => PurchaseStatus::class,
+            'payment_method' => PaymentMethod::class,
             'exchange_rate' => 'integer',
             'committed_at' => 'datetime',
         ];
@@ -79,6 +90,16 @@ class Purchase extends Model
     public function exchangeRate(): string
     {
         return ExchangeRates::rateToDecimal($this->exchange_rate);
+    }
+
+    /**
+     * The account this invoice was paid out of, or null when it was cash.
+     *
+     * @return BelongsTo<Bank, $this>
+     */
+    public function bank(): BelongsTo
+    {
+        return $this->belongsTo(Bank::class);
     }
 
     /**
@@ -157,13 +178,8 @@ class Purchase extends Model
         return (int) $this->lines->sum('quantity');
     }
 
-    /**
-     * The next filing reference, e.g. PUR-00007.
-     */
-    public static function nextNumber(): string
+    protected static function referencePrefix(): string
     {
-        $latest = (int) static::query()->max('id');
-
-        return sprintf('PUR-%05d', $latest + 1);
+        return 'PUR-';
     }
 }

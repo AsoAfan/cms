@@ -26,7 +26,12 @@ import AppLayout from '@/layouts/app-layout';
 import purchases from '@/routes/purchases';
 import { index as reportsIndex } from '@/routes/reports';
 import type { BreadcrumbItem } from '@/types';
-import type { Activity, CashFlow, PeriodProps } from '@/types/reports';
+import type {
+    Activity,
+    CashFlow,
+    GoodsOwed,
+    PeriodProps,
+} from '@/types/reports';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Dashboard' }];
 
@@ -40,12 +45,15 @@ export default function Dashboard({
     previous,
     recent,
     owed,
+    goodsOwed,
 }: PeriodProps & {
     cashFlow: CashFlow;
     previous: CashFlow;
     recent: Activity;
     /** What customers owe today — see `CustomerBalanceQuery`. */
     owed: number;
+    /** What the shop owes in goods — see `GoodsOwedQuery`. */
+    goodsOwed: GoodsOwed;
 }) {
     const [tab, setTab] = useState<ActivityTab>('all');
 
@@ -158,6 +166,20 @@ export default function Dashboard({
                                     : 'Out on customer loans'
                             }
                         />
+                        {/* The mirror of it, and the reason it is here: goods
+                            sold that were never bought. Shown only when there
+                            are some — a permanent zero is not news, and a shop
+                            that owes nothing has nothing to act on. */}
+                        {goodsOwed.items > 0 && (
+                            <StatTile
+                                label="Owed by you"
+                                value={goodsOwed.value}
+                                money
+                                hint={`${goodsOwed.items} ${
+                                    goodsOwed.items === 1 ? 'item' : 'items'
+                                } sold and not in stock`}
+                            />
+                        )}
                     </div>
 
                     <Card>

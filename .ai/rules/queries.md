@@ -3,6 +3,7 @@ paths:
   - 'app/Queries/**'
   - app/Queries/CustomerBalanceQuery.php
   - app/Queries/CashFlowQuery.php
+  - app/Queries/BankBalanceQuery.php
 ---
 
 # Queries
@@ -49,3 +50,21 @@ Aggregate over three separate grouped queries, never one join across `sale_lines
 A sale counts from `proceed` (delivered), not from `on_the_way`. Stock leaves a status earlier; that is the one place the ledger and the money view deliberately part company.
 
 "Owed to you" is NOT in this query. It is a position (what is unpaid today), not a flow over the window, so the controllers read it from `CustomerBalanceQuery::total()`.
+
+## Goods owed is the mirror of a customer's loan, and it is derived
+Selling out of stock is allowed at `ordered` and creates a loan the other way round: the shop owes product. `GoodsOwedQuery` reads it back — there is no backorder table and there must not be one, for the reason there is no stock balance or customer balance column. Buying the stock clears it because nothing was written down.
+
+- `forSale()` measures a sale EXACTLY as `IssueSaleAction` pre-flights it: summed per product, as at `sold_on->endOfDay()`. Change one and change the other, or the screen will say a sale can go out and the server will refuse it.
+- `get()` sums demand across every uncommitted sale against on-hand NOW. Two orders for five with three on the shelf are seven short between them, not two and two — per-sale figures do not add up to it, and that is correct: one answers "can this go out", the other "what must I buy".
+- Only uncommitted sales owe anything (`committed_at IS NULL`). A committed sale's goods are already out of the ledger; counting it again owes the same items twice.
+- Valued at `products.cost_price` — what making good on it costs. The FIFO ledger cannot cost goods never bought, and the selling price states the debt at what the customer pays.
+- The sale screen disables the two statuses that release stock while anything is owed (`StatusStepper` `blocked`/`blockedReason`). A move that always fails is not a move.
+
+## A bank balance is derived, and scoped exactly as the report is
+`BankBalanceQuery` is the ONE place an account's balance is worked out, and there is no balance column — every sale, invoice, expense, repayment and correction moves it, so a stored figure is the one most certain to drift.
+
+balance = money handed over on **delivered** sales + repayments received + manual money in − expenses paid from it − **in-ledger** invoices paid from it − manual money out.
+
+It is scoped exactly as `CashFlowQuery` is (a sale from `proceed`, an invoice from the status that puts its goods in the ledger), so an account's balance and the report above it can never describe different sets of documents. The trade that comes with it: money sent to a supplier for an order that has not arrived is not off the balance yet — record it as a `BankAdjustment` if it matters.
+
+A balance is a **position, not a flow**: it takes no `ReportPeriod` and sits beside "Owed to you" on the report rather than among the period tiles. Trade alone starts every account at zero on the day the business began using this system; `bank_adjustments` carries the opening balance and everything else no document explains, with a SIGNED amount (negative is money out) and no update path — a wrong movement is deleted and recorded again.

@@ -6,15 +6,18 @@ use App\Http\Controllers\Customers\CustomerPaymentController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Expenses\ExpenseCategoryController;
 use App\Http\Controllers\Expenses\ExpenseController;
+use App\Http\Controllers\LoanController;
 use App\Http\Controllers\Purchasing\PurchaseController;
 use App\Http\Controllers\Purchasing\QuickPurchaseController;
 use App\Http\Controllers\Reports\ReportController;
 use App\Http\Controllers\Reports\ReportExportController;
 use App\Http\Controllers\Sales\QuickSaleController;
 use App\Http\Controllers\Sales\SaleController;
+use App\Http\Controllers\Settings\BankAdjustmentController;
 use App\Http\Controllers\Settings\BankController;
 use App\Http\Controllers\Settings\CurrencyController;
 use App\Http\Controllers\Settings\ExchangeRateController;
+use App\Http\Controllers\Settings\UpdateController;
 use App\Http\Controllers\Suppliers\SupplierController;
 use Illuminate\Support\Facades\Route;
 
@@ -64,6 +67,11 @@ Route::middleware('auth')->group(function (): void {
     Route::post('purchases/{purchase}/status', [PurchaseController::class, 'status'])
         ->name('purchases.status')
         ->whereNumber('purchase');
+    // The reference alone, edited in place on the invoice. Separate from
+    // `update` because renaming must not disturb the stock the invoice moved.
+    Route::patch('purchases/{purchase}/number', [PurchaseController::class, 'rename'])
+        ->name('purchases.rename')
+        ->whereNumber('purchase');
 
     // Rung up and corrected in a drawer over the list, like a purchase, so
     // there is no create or edit page to route to. `status` moves it along —
@@ -74,11 +82,20 @@ Route::middleware('auth')->group(function (): void {
     Route::post('sales/{sale}/status', [SaleController::class, 'status'])
         ->name('sales.status')
         ->whereNumber('sale');
+    // The reference alone, edited in place on the invoice. Separate from
+    // `update` because renaming must not disturb the stock the sale moved.
+    Route::patch('sales/{sale}/number', [SaleController::class, 'rename'])
+        ->name('sales.rename')
+        ->whereNumber('sale');
 
     Route::resource('expenses', ExpenseController::class)->only(['index', 'store', 'update', 'destroy']);
     Route::resource('expense-categories', ExpenseCategoryController::class)
         ->only(['store', 'update', 'destroy'])
         ->parameters(['expense-categories' => 'category']);
+
+    // Both loans on one screen — goods owed out and money owed in. A position
+    // rather than a flow, so unlike the report it takes no window.
+    Route::get('loans', LoanController::class)->name('loans.index');
 
     // Reporting is one screen. It reads its window from `?from=&to=` or
     // `?preset=`, so a URL is the whole of the state and can be bookmarked or
@@ -111,6 +128,16 @@ Route::middleware('auth')->group(function (): void {
             ->name('banks.destroy')
             ->whereNumber('bank');
 
+        // Money into or out of an account that no document explains — the
+        // balance it opened with, cash deposited, interest, charges. There is
+        // no update: a wrong movement is deleted and recorded again.
+        Route::post('banks/{bank}/balance', [BankAdjustmentController::class, 'store'])
+            ->name('banks.balance.store')
+            ->whereNumber('bank');
+        Route::delete('bank-balance/{adjustment}', [BankAdjustmentController::class, 'destroy'])
+            ->name('banks.balance.destroy')
+            ->whereNumber('adjustment');
+
         Route::post('currencies', [CurrencyController::class, 'store'])
             ->name('currencies.store');
         Route::post('currencies/{currency}/default', [CurrencyController::class, 'makeDefault'])
@@ -119,6 +146,17 @@ Route::middleware('auth')->group(function (): void {
         Route::delete('currencies/{currency}', [CurrencyController::class, 'destroy'])
             ->name('currencies.destroy')
             ->whereNumber('currency');
+
+        // Keeping the installed copy current, in place of a client downloading
+        // a zip and replacing files by hand. `index` shows a remembered answer
+        // and never waits on the network — see `App\Services\UpdateService`.
+        Route::get('update', [UpdateController::class, 'index'])->name('update.index');
+        // Asks the release branch what is there and remembers the answer. Fired
+        // from the browser on any screen once the remembered one goes stale,
+        // which is what keeps the network off a page load, and by the Check now
+        // button with `force`.
+        Route::post('update/check', [UpdateController::class, 'check'])->name('update.check');
+        Route::post('update', [UpdateController::class, 'store'])->name('update.store');
     });
 });
 

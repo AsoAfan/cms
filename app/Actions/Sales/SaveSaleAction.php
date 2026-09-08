@@ -36,7 +36,7 @@ final class SaveSaleAction
      * one place that converts. `currency` and `exchange_rate` on the header record
      * what the money changed hands in and at what rate.
      *
-     * @param  array{customer_id: int, sold_on: string, status: SaleStatus, payment_method: string, bank_id?: int|null, amount_paid?: string, notes: string|null, currency?: string, exchange_rate?: int}  $header
+     * @param  array{customer_id: int, number?: string, sold_on: string, status: SaleStatus, payment_method: string, bank_id?: int|null, amount_paid?: string, notes: string|null, currency?: string, exchange_rate?: int}  $header
      * @param  list<array{product_id: int, quantity: int, unit_price: string, discount: string}>  $lines
      *
      * @throws SaleLedgerException
@@ -52,6 +52,10 @@ final class SaveSaleAction
 
             $sale->fill([
                 'customer_id' => $header['customer_id'],
+                // The reference is the user's to set. Absent, a new sale keeps
+                // the next in sequence it was opened with and an existing one
+                // keeps the number it is already filed under.
+                'number' => $header['number'] ?? $sale->number,
                 'sold_on' => $header['sold_on'],
                 'status' => $header['status'],
                 'payment_method' => PaymentMethod::from($header['payment_method']),

@@ -2,6 +2,7 @@ import { useForm } from '@inertiajs/react';
 import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
+import { BankField, bankAfterMethodChange } from '@/components/bank-field';
 import { StatusPicker } from '@/components/document-status';
 import { FormField } from '@/components/form-field';
 import { MoneyInput } from '@/components/money-input';
@@ -31,14 +32,19 @@ import {
     useToBase,
 } from '@/hooks/use-currency';
 import { todayIso } from '@/lib/date';
+import { cn } from '@/lib/utils';
 import { store, update } from '@/routes/purchases';
+import type { BankOption } from '@/types/banks';
+import { NO_BANK } from '@/types/banks';
 import type {
     AdditionalCostForm,
     AllocationMethodOption,
+    PaymentMethodOption,
     ProductOption,
     PurchaseDetail,
     PurchaseFormData,
     PurchaseLineForm,
+    PurchaseLineSeed,
     PurchaseStatusOption,
 } from '@/types/purchasing';
 
@@ -46,9 +52,17 @@ export type PurchaseFormProps = {
     products: ProductOption[];
     allocationMethods: AllocationMethodOption[];
     statuses: PurchaseStatusOption[];
+    paymentMethods: PaymentMethodOption[];
+    banks: BankOption[];
     /** The invoice being edited, or the reference the new one will be filed as. */
     purchase?: PurchaseDetail;
     nextNumber?: string;
+    /**
+     * Lines a new invoice opens with — the loans screen fills the order it is
+     * telling you to place. Ignored when editing: an existing invoice's lines
+     * are the invoice.
+     */
+    prefill?: PurchaseLineSeed[];
     onDone: () => void;
 };
 
@@ -61,6 +75,43 @@ function blankLine(currency: string): PurchaseLineForm {
         discount: '',
         discount_currency: currency,
     };
+}
+
+/**
+ * Lines for an invoice opened from somewhere that already knows what to buy.
+ *
+ * The cost comes off the catalogue and is therefore in the BASE currency, which
+ * is what `chooseProduct` does when a product is picked by hand — the seed is
+ * only saving the keystrokes, never pricing the invoice differently. A seed
+ * naming a product that is no longer in the list is dropped rather than left as
+ * an unpickable row.
+ */
+function seededLines(
+    seeds: PurchaseLineSeed[],
+    products: ProductOption[],
+    base: string,
+    currency: string,
+): PurchaseLineForm[] {
+    const lines = seeds.flatMap((seed) => {
+        const product = products.find(
+            (candidate) => candidate.id === seed.product_id,
+        );
+
+        return product === undefined
+            ? []
+            : [
+                  {
+                      product_id: product.id,
+                      quantity: String(seed.quantity),
+                      unit_cost: product.cost_price,
+                      unit_cost_currency: base,
+                      discount: '',
+                      discount_currency: currency,
+                  },
+              ];
+    });
+
+    return lines.length > 0 ? lines : [blankLine(currency)];
 }
 
 /**
@@ -98,8 +149,11 @@ export function PurchaseForm({
     products,
     allocationMethods,
     statuses,
+    paymentMethods,
+    banks,
     purchase,
     nextNumber,
+    prefill,
     onDone,
 }: PurchaseFormProps) {
     const { base, currencies } = useCurrency();
@@ -111,8 +165,18 @@ export function PurchaseForm({
     const invoiceCurrency = purchase?.base_currency ?? base;
 
     const form = useForm<PurchaseFormData>({
+        // The reference the invoice is filed under, editable from here. A new
+        // one opens on the next in sequence; the server hands it back if it is
+        // cleared, so the field can never lose an invoice its number.
+        number: purchase?.number ?? nextNumber ?? '',
         invoiced_on: purchase?.invoiced_on ?? todayIso(),
         status: purchase?.status ?? 'ordered',
+        // How the supplier was paid, and out of which account. Cash names no
+        // bank, which is why the field below it appears only on the methods
+        // that use one.
+        payment_method:
+            purchase?.payment_method ?? paymentMethods[0]?.value ?? 'cash',
+        bank_id: purchase?.bank_id ?? NO_BANK,
         currency: invoiceCurrency,
         notes: purchase?.notes ?? '',
         lines: purchase
@@ -124,7 +188,9 @@ export function PurchaseForm({
                   discount: line.discount_decimal,
                   discount_currency: invoiceCurrency,
               }))
-            : [blankLine(invoiceCurrency)],
+            : prefill && prefill.length > 0
+              ? seededLines(prefill, products, base, invoiceCurrency)
+              : [blankLine(invoiceCurrency)],
         additional_costs:
             purchase?.additional_costs.map((cost) => ({
                 label: cost.label,
@@ -211,14 +277,14 @@ export function PurchaseForm({
 
         // The catalogue price is held in the base currency, so pre-filling it
         // has to put the field back into the base currency to match.
-        const prefill = form.data.lines[index].unit_cost
+        const pricing = form.data.lines[index].unit_cost
             ? {}
             : {
                   unit_cost: product?.cost_price ?? '',
                   unit_cost_currency: base,
               };
 
-        updateLine(index, { product_id: productId, ...prefill });
+        updateLine(index, { product_id: productId, ...pricing });
     }
 
     function addLine() {
@@ -301,11 +367,8 @@ export function PurchaseForm({
             className="mx-auto flex w-full max-w-4xl flex-col gap-5"
         >
             <SheetHeader className="px-0">
-                <SheetTitle className="flex items-center gap-2">
+                <SheetTitle>
                     {editing ? 'Edit invoice' : 'New purchase'}
-                    <span className="font-mono text-sm font-normal text-muted-foreground">
-                        {purchase?.number ?? nextNumber}
-                    </span>
                 </SheetTitle>
                 <SheetDescription>
                     {editing
@@ -327,7 +390,31 @@ export function PurchaseForm({
                     )}
                 </FormField>
 
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div
+                    className={cn(
+                        'grid gap-4',
+                        currencies.length > 1
+                            ? 'sm:grid-cols-3'
+                            : 'sm:grid-cols-2',
+                    )}
+                >
+                    <FormField
+                        label="Reference"
+                        error={form.errors.number}
+                        description="Yours to change."
+                    >
+                        {(control) => (
+                            <Input
+                                {...control}
+                                className="font-mono"
+                                value={form.data.number}
+                                onChange={(event) =>
+                                    form.setData('number', event.target.value)
+                                }
+                            />
+                        )}
+                    </FormField>
+
                     <FormField
                         label="Invoice date"
                         error={form.errors.invoiced_on}
@@ -370,6 +457,48 @@ export function PurchaseForm({
                             )}
                         </FormField>
                     )}
+                </div>
+
+                {/* How the supplier was paid, and out of which account. The
+                    bank appears only on the methods that move through one —
+                    `PaymentMethod::usesBank()` decides, not this form. */}
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField
+                        label="Payment"
+                        error={form.errors.payment_method}
+                        description="Paying from an account takes it off that balance."
+                    >
+                        {(control) => (
+                            <OptionSelect
+                                {...control}
+                                className="w-full"
+                                value={form.data.payment_method}
+                                options={paymentMethods}
+                                onChange={(value) => {
+                                    const method = String(value);
+
+                                    form.setData((data) => ({
+                                        ...data,
+                                        payment_method: method,
+                                        bank_id: bankAfterMethodChange(
+                                            paymentMethods,
+                                            method,
+                                            data.bank_id,
+                                        ),
+                                    }));
+                                }}
+                            />
+                        )}
+                    </FormField>
+
+                    <BankField
+                        banks={banks}
+                        methods={paymentMethods}
+                        method={form.data.payment_method}
+                        value={form.data.bank_id}
+                        error={form.errors.bank_id}
+                        onChange={(value) => form.setData('bank_id', value)}
+                    />
                 </div>
             </FieldGroup>
 

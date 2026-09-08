@@ -3,12 +3,16 @@
 namespace App\Http\Middleware;
 
 use App\Services\CurrencyService;
+use App\Services\UpdateService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
 {
-    public function __construct(private readonly CurrencyService $currencies) {}
+    public function __construct(
+        private readonly CurrencyService $currencies,
+        private readonly UpdateService $updates,
+    ) {}
 
     /**
      * The root template that's loaded on the first page visit.
@@ -49,6 +53,11 @@ class HandleInertiaRequests extends Middleware
             // matches the state the user left it in.
             'sidebarOpen' => $request->cookie('sidebar_state') !== 'false',
             'appearance' => $this->appearance($request),
+            // Whether a new release is waiting, so the sidebar can say so on
+            // any screen. Remembered, never fetched: this runs on every request
+            // and must not put the network on the path of a page load. The
+            // browser refreshes it when it goes stale — see `UpdateNotice`.
+            'update' => $request->user() ? $this->updates->announcement() : null,
         ];
     }
 

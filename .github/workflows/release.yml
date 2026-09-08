@@ -1,0 +1,144 @@
+name: release
+
+# Publishes the branch client installations pull from.
+#
+# `main` is source: no `vendor/`, no `public/build`, useless to a machine with
+# neither Composer nor Node on it. This job builds both and pushes the result to
+# `release`, so updating a client's copy is a fetch and a reset — see
+# `App\Services\UpdateService`.
+#
+# It runs only after `tests` has passed on the same commit. A red build that
+# reaches a shop's only computer is the failure this whole mechanism exists to
+# avoid.
+
+on:
+  workflow_run:
+    workflows: [tests]
+    types: [completed]
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One release at a time: two jobs racing would each push a tree built from a
+# different commit, and the loser's changes would silently vanish.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the commit that passed
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      # `--optimize-autoloader` but deliberately NOT `--classmap-authoritative`:
+      # the update applies migrations in-process straight after replacing the
+      # files, and an authoritative classmap would refuse to autoload any class
+      # the release just added.
+      - name: Install PHP dependencies
+        run: composer install --no-dev --optimize-autoloader --no-interaction --no-progress
+
+      # Wayfinder generates its route functions by booting the app during the
+      # Vite build, so this needs a working .env and key even though nothing
+      # here touches a database.
+      - name: Build the frontend
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          npm ci
+          npm run build
+
+      - name: Publish to the release branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          REMOTE="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          SUBJECT="$(git log -1 --format=%s)"
+
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # Build on top of the existing release history where there is one, so
+          # a client can still be told what changed between their version and
+          # this one.
+          if git ls-remote --exit-code --heads "$REMOTE" release >/dev/null 2>&1; then
+            git clone --depth=1 --branch release "$REMOTE" ../release
+          else
+            mkdir ../release
+            git -C ../release init -b release
+            git -C ../release remote add origin "$REMOTE"
+          fi
+
+          # --delete so a file removed from main is removed from the release
+          # too. Everything excluded here is either built on the client's own
+          # machine or belongs to it: its database, its .env, its logs.
+          rsync -a --delete \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            --exclude 'node_modules/' \
+            --exclude '.env' \
+            --exclude 'database/*.sqlite*' \
+            --exclude 'storage/logs/*' \
+            --exclude 'storage/app/private/backups/' \
+            --exclude 'storage/framework/cache/data/*' \
+            --exclude 'storage/framework/sessions/*' \
+            --exclude 'storage/framework/views/*' \
+            --exclude 'bootstrap/cache/*.php' \
+            --exclude 'public/hot' \
+            --exclude 'public/storage' \
+            ./ ../release/
+
+          # The release branch keeps what main ignores — that is the entire
+          # point of it — and ignores what belongs to the installation.
+          cat > ../release/.gitignore <<'IGNORE'
+          /node_modules
+          /.env
+          /.env.backup
+          /.env.production
+          /auth.json
+          /database/*.sqlite*
+          /storage/logs/*
+          /storage/app/private/backups
+          /storage/app/private/update.lock
+          /storage/framework/cache/data/*
+          /storage/framework/sessions/*
+          /storage/framework/views/*
+          /bootstrap/cache/*.php
+          /public/hot
+          /public/storage
+          IGNORE
+
+          cd ../release
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "Nothing changed since the last release."
+            exit 0
+          fi
+
+          git commit -m "$SUBJECT"
+          git push origin release

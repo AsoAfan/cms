@@ -3,10 +3,12 @@ import {
     BadgeDollarSign,
     ChartLine,
     Coins,
+    HandCoins,
     Landmark,
     LayoutDashboard,
     Package,
     Receipt,
+    RefreshCw,
     ShoppingCart,
     Truck,
     Users,
@@ -21,6 +23,7 @@ import {
     SidebarGroupLabel,
     SidebarHeader,
     SidebarMenu,
+    SidebarMenuBadge,
     SidebarMenuButton,
     SidebarMenuItem,
     SidebarRail,
@@ -28,12 +31,14 @@ import {
 import { dashboard } from '@/routes';
 import customers from '@/routes/customers';
 import expenses from '@/routes/expenses';
+import loans from '@/routes/loans';
 import products from '@/routes/products';
 import purchases from '@/routes/purchases';
 import reports from '@/routes/reports';
 import sales from '@/routes/sales';
 import banks from '@/routes/settings/banks';
 import exchangeRates from '@/routes/settings/exchange-rates';
+import update from '@/routes/settings/update';
 import suppliers from '@/routes/suppliers';
 import type { NavGroup } from '@/types';
 
@@ -81,6 +86,8 @@ const navigation: NavGroup[] = [
         label: 'Analysis',
         items: [
             { title: 'Reports', href: reports.index.url(), icon: ChartLine },
+            // A position rather than a period: what is owed each way today.
+            { title: 'Loans', href: loans.index.url(), icon: HandCoins },
         ],
     },
     {
@@ -92,12 +99,21 @@ const navigation: NavGroup[] = [
                 icon: Coins,
             },
             { title: 'Banks', href: banks.index.url(), icon: Landmark },
+            // Last, because it is the one thing here that is about the
+            // software rather than the business.
+            { title: 'Updates', href: update.index.url(), icon: RefreshCw },
         ],
     },
 ];
 
 export function AppSidebar() {
-    const { url } = usePage();
+    const { url, props } = usePage();
+
+    // The one nav entry that can carry news. A dot rather than a count: there
+    // is only ever one answer, and it has to stay visible when the sidebar is
+    // collapsed to icons, which `SidebarMenuBadge` otherwise hides.
+    const updateWaiting = props.update?.available ?? false;
+    const updateHref = update.index.url();
 
     return (
         <Sidebar collapsible="icon">
@@ -148,6 +164,16 @@ export function AppSidebar() {
                                             <item.icon />
                                             <span>{item.title}</span>
                                         </SidebarMenuButton>
+
+                                        {item.href === updateHref &&
+                                            updateWaiting && (
+                                                <SidebarMenuBadge className="top-1.5 right-1.5 size-2 min-w-0 rounded-full bg-primary p-0 group-data-[collapsible=icon]:flex">
+                                                    <span className="sr-only">
+                                                        An update is ready to
+                                                        install
+                                                    </span>
+                                                </SidebarMenuBadge>
+                                            )}
                                     </SidebarMenuItem>
                                 ))}
                             </SidebarMenu>

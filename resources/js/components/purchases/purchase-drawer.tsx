@@ -1,9 +1,12 @@
 import { PurchaseForm } from '@/components/purchases/purchase-form';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import type { BankOption } from '@/types/banks';
 import type {
     AllocationMethodOption,
+    PaymentMethodOption,
     ProductOption,
     PurchaseDetail,
+    PurchaseLineSeed,
     PurchaseStatusOption,
 } from '@/types/purchasing';
 
@@ -13,9 +16,13 @@ export type PurchaseDrawerProps = {
     products: ProductOption[];
     allocationMethods: AllocationMethodOption[];
     statuses: PurchaseStatusOption[];
+    paymentMethods: PaymentMethodOption[];
+    banks: BankOption[];
     /** Present when editing; absent when writing a new invoice. */
     purchase?: PurchaseDetail;
     nextNumber?: string;
+    /** Lines a new invoice opens with. Ignored when editing. */
+    prefill?: PurchaseLineSeed[];
 };
 
 /**
@@ -31,8 +38,11 @@ export function PurchaseDrawer({
     products,
     allocationMethods,
     statuses,
+    paymentMethods,
+    banks,
     purchase,
     nextNumber,
+    prefill,
 }: PurchaseDrawerProps) {
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
@@ -45,8 +55,11 @@ export function PurchaseDrawer({
                         products={products}
                         allocationMethods={allocationMethods}
                         statuses={statuses}
+                        paymentMethods={paymentMethods}
+                        banks={banks}
                         purchase={purchase}
                         nextNumber={nextNumber}
+                        prefill={prefill}
                         onDone={() => onOpenChange(false)}
                     />
                 )}

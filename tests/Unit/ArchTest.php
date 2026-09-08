@@ -162,6 +162,23 @@ arch('the cash report never derives cost of goods sold')
     ]);
 
 /*
+ * Money moved between the business's own accounts is not trade. A transfer
+ * takes nothing off a shelf and brings nothing in, so counting one as income or
+ * outcome would report the same money as earned or spent every time it was
+ * shifted between accounts. It moves balances and nothing else.
+ */
+arch('the cash report never counts money moved between accounts')
+    ->expect([
+        'App\Queries\CashFlowQuery',
+        'App\Queries\ActivityQuery',
+    ])
+    ->not->toUse([
+        'App\Models\BankTransfer',
+        'App\Models\BankAdjustment',
+        'App\Queries\BankBalanceQuery',
+    ]);
+
+/*
 |--------------------------------------------------------------------------
 | Currency is converted once, on the way in
 |--------------------------------------------------------------------------

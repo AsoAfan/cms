@@ -15,7 +15,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Http/Controllers/Expenses/** | .ai/rules/expenses.md |
 | app/Http/** | .ai/rules/http.md |
 | resources/js/** | .ai/rules/js.md |
-| app/Models/Sale.php, app/Models/Currency.php, app/Models/Bank.php, app/Models/*.php | .ai/rules/models.md |
+| app/Models/Sale.php, app/Models/Currency.php, app/Models/Bank.php, app/Models/*.php, app/Models/BankTransfer.php | .ai/rules/models.md |
 | resources/js/pages/** | .ai/rules/pages.md |
 | app/Actions/Purchasing/** | .ai/rules/purchasing.md |
 | app/Queries/**, app/Queries/CustomerBalanceQuery.php, app/Queries/CashFlowQuery.php, app/Queries/BankBalanceQuery.php | .ai/rules/queries.md |

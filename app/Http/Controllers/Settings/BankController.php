@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\BankRequest;
 use App\Models\Bank;
 use App\Models\BankAdjustment;
+use App\Models\BankTransfer;
 use App\Queries\BankBalanceQuery;
 use App\Support\Flash;
 use App\Support\Money;
@@ -33,15 +34,18 @@ use Inertia\Response;
  */
 class BankController extends Controller
 {
-    /** How many hand-written movements the screen lists. */
-    private const int RECENT_ADJUSTMENTS = 25;
+    /** How many hand-written movements the screen lists, both kinds together. */
+    private const int RECENT_MOVEMENTS = 25;
 
     public function __construct(private readonly BankBalanceQuery $balances) {}
 
     public function index(): Response
     {
         $banks = Bank::query()
-            ->withCount(['sales', 'purchases', 'expenses', 'customerPayments', 'adjustments'])
+            ->withCount([
+                'sales', 'purchases', 'expenses', 'customerPayments',
+                'adjustments', 'transfersOut', 'transfersIn',
+            ])
             ->orderBy('name')
             ->get();
 
@@ -58,11 +62,14 @@ class BankController extends Controller
                 'expenses_count' => $bank->expenses_count,
                 'payments_count' => $bank->customer_payments_count,
                 'adjustments_count' => $bank->adjustments_count,
+                // Both directions together: the screen only asks whether money
+                // has moved between accounts, not which way.
+                'transfers_count' => $bank->transfers_out_count + $bank->transfers_in_count,
                 // Base-currency minor units, like every figure on the wire.
                 'balance' => ($balances[$bank->id] ?? Money::zero())->minorUnits,
             ])->all(),
             'balanceTotal' => $this->balances->total($balances)->minorUnits,
-            'adjustments' => $this->adjustments(),
+            'movements' => $this->movements(),
             'directions' => BankAdjustmentDirection::options(),
         ]);
     }
@@ -86,34 +93,63 @@ class BankController extends Controller
     }
 
     /**
-     * The manual movements behind the balances, newest first.
+     * Everything moved by hand behind the balances, newest first.
      *
-     * Capped rather than paginated: this is the recent history a user checks a
-     * figure against, and an account with hundreds of hand-written movements is
-     * an account whose trade should be recorded as documents instead.
+     * The two kinds are normalised into one row shape — as `ActivityQuery`
+     * does for documents — because somebody checking a figure wants one
+     * history, not two lists to read in parallel.
+     *
+     * Capped rather than paginated: this is the recent history a balance is
+     * checked against, and an account with hundreds of hand-written movements
+     * is an account whose trade should be recorded as documents instead.
      *
      * @return list<array<string, mixed>>
      */
-    private function adjustments(): array
+    private function movements(): array
     {
+        $adjustments = BankAdjustment::query()
+            ->with('bank:id,name')
+            ->latest('occurred_on')
+            ->latest('id')
+            ->limit(self::RECENT_MOVEMENTS)
+            ->get()
+            ->map(fn (BankAdjustment $adjustment): array => [
+                'kind' => 'adjustment',
+                'id' => $adjustment->id,
+                'label' => $adjustment->reason,
+                'detail' => $adjustment->bank->name,
+                // Signed minor units: negative is money out, and the screen
+                // reads the direction off the sign rather than a second field
+                // that could disagree with it.
+                'amount' => $adjustment->amount->minorUnits,
+                'occurred_on' => $adjustment->occurred_on->toDateString(),
+            ]);
+
+        $transfers = BankTransfer::query()
+            ->with(['fromBank:id,name', 'toBank:id,name'])
+            ->latest('occurred_on')
+            ->latest('id')
+            ->limit(self::RECENT_MOVEMENTS)
+            ->get()
+            ->map(fn (BankTransfer $transfer): array => [
+                'kind' => 'transfer',
+                'id' => $transfer->id,
+                'label' => $transfer->reason ?? 'Moved between accounts',
+                'detail' => $transfer->route(),
+                // Never signed: a transfer takes nothing out of the business,
+                // so the figure belongs to the pair rather than to one side.
+                'amount' => $transfer->amount->minorUnits,
+                'occurred_on' => $transfer->occurred_on->toDateString(),
+            ]);
+
         return array_values(
-            BankAdjustment::query()
-                ->with('bank:id,name')
-                ->latest('occurred_on')
-                ->latest('id')
-                ->limit(self::RECENT_ADJUSTMENTS)
-                ->get()
-                ->map(fn (BankAdjustment $adjustment): array => [
-                    'id' => $adjustment->id,
-                    'bank_id' => $adjustment->bank_id,
-                    'bank' => $adjustment->bank->name,
-                    'reason' => $adjustment->reason,
-                    // Signed minor units: negative is money out, and the screen
-                    // reads the direction off the sign rather than a second field
-                    // that could disagree with it.
-                    'amount' => $adjustment->amount->minorUnits,
-                    'occurred_on' => $adjustment->occurred_on->toDateString(),
-                ])
+            $adjustments
+                ->concat($transfers)
+                ->sortByDesc(fn (array $movement): string => $movement['occurred_on'].str_pad(
+                    (string) $movement['id'], 10, '0', STR_PAD_LEFT
+                ))
+                ->take(self::RECENT_MOVEMENTS)
+                ->values()
                 ->all()
         );
     }

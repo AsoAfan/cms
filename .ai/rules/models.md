@@ -4,6 +4,7 @@ paths:
   - app/Models/Currency.php
   - app/Models/Bank.php
   - 'app/Models/*.php'
+  - app/Models/BankTransfer.php
 ---
 
 # Models
@@ -43,3 +44,12 @@ What an account holds is **never stored**: `BankBalanceQuery` derives it, and `b
 `nextNumber()` (in `App\Models\Concerns\FiledUnderAReference`) is **the greatest reference on record plus one**, NOT `max('id') + 1` — counting off the id hands back a number from behind whatever was last filed. Greatest is by `LENGTH(number)` first and then the characters, so PUR-00010 outranks PUR-9 without the database parsing the column.
 
 **Whatever shape that reference is written in is the shape the next one takes**, padding included: after INV/2026/014 comes INV/2026/015, after 999 comes 1000. A model supplies only `referencePrefix()`, which names the sequence used when the table is empty or nothing on it ends in a number. Taken numbers are stepped over — collations differ on case, and a suggestion that fails the unique rule is worse than none.
+
+## A transfer between accounts is one row, and never trade
+`bank_transfers` holds money moved between the business's own accounts as ONE row (`from_bank_id`, `to_bank_id`, unsigned `amount`), not a pair of `bank_adjustments`. Two rows can be half-written, half-deleted or edited apart, and the moment they disagree the business appears to have gained or lost money it never had. Held as one row, "a transfer never changes what the business holds in total" is a property of the schema rather than a rule somebody maintains — and deleting one unwinds both sides at once.
+
+It is not an adjustment for a second reason: an adjustment is money trade cannot explain, and a transfer is explained by the other side of itself.
+
+`BankBalanceQuery` reads the same row twice — off `from_bank_id`, on to `to_bank_id`. **Nothing in reporting counts a transfer**: no money entered or left the business, and an arch test keeps `CashFlowQuery`/`ActivityQuery` away from `BankTransfer`, `BankAdjustment` and `BankBalanceQuery` so shifting money between accounts can never read as income or outcome.
+
+The two accounts must differ (`BankTransferRequest`, `different:from_bank_id`), the amount is always positive and always runs from → to, and there is no update path — a wrong transfer is deleted and recorded again. `reason` is optional here, unlike an adjustment's required one: the two accounts and the date already identify it.

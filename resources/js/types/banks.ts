@@ -27,21 +27,25 @@ export type BankRow = BankOption & {
     expenses_count: number;
     payments_count: number;
     adjustments_count: number;
+    /** Movements between this account and another, both directions together. */
+    transfers_count: number;
     balance: MinorUnits;
 };
 
 /**
- * Money put into or taken out of an account by hand — the opening balance,
- * cash deposited, interest, a charge.
+ * One thing moved by hand, whichever kind it is — mirrors
+ * `BankController::movements()`, which normalises the two into one row shape
+ * the way `ActivityQuery` does for documents.
  *
- * `amount` is SIGNED: negative is money out. The screen reads the direction off
- * the sign rather than a second field that could disagree with it.
+ * On an `adjustment` the amount is SIGNED (negative is money out) and `detail`
+ * names the account. On a `transfer` it is always positive — the money never
+ * left the business — and `detail` reads "from → to".
  */
-export type BankAdjustmentRow = {
+export type BankMovementRow = {
+    kind: 'adjustment' | 'transfer';
     id: number;
-    bank_id: number;
-    bank: string;
-    reason: string;
+    label: string;
+    detail: string;
     amount: MinorUnits;
     occurred_on: string;
 };
@@ -57,6 +61,19 @@ export type BankAdjustmentDirectionOption = {
  * The amount is typed positive and the direction says which way it went; the
  * server applies the sign. See `BankAdjustmentRequest`.
  */
+/**
+ * Money moved between two of the business's own accounts. Always positive and
+ * always from → to; moving it back is the same form the other way round.
+ */
+export type BankTransferForm = {
+    from_bank_id: string;
+    to_bank_id: string;
+    amount: string;
+    amount_currency: string;
+    occurred_on: string;
+    reason: string;
+};
+
 export type BankAdjustmentForm = {
     direction: string;
     reason: string;

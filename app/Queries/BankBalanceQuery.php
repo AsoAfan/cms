@@ -5,6 +5,7 @@ namespace App\Queries;
 use App\Enums\PurchaseStatus;
 use App\Enums\SaleStatus;
 use App\Models\BankAdjustment;
+use App\Models\BankTransfer;
 use App\Models\CustomerPayment;
 use App\Models\Expense;
 use App\Models\PurchaseAdditionalCost;
@@ -20,9 +21,9 @@ use Illuminate\Support\Collection;
  *     balance = money in − money out
  *
  *     in  = taken at the till on delivered sales + repayments received
- *           + manual money in
+ *           + manual money in + transfers in from another account
  *     out = invoices paid out of it + expenses paid out of it
- *           + manual money out
+ *           + manual money out + transfers out to another account
  *
  * There is no balance column, for the reason there is no stock balance column
  * and no customer balance column: every sale, invoice, expense, repayment and
@@ -44,6 +45,12 @@ use Illuminate\Support\Collection;
  *
  * Trade alone starts every account at zero on the day the business began using
  * this system. `BankAdjustment` is what carries the balance it already had.
+ *
+ * **A transfer moves a balance but never a total.** `BankTransfer` is one row
+ * covering both sides, read here twice — off the account it left and on to the
+ * account it reached — so the sum across every account is exactly what it was
+ * before the money moved. Nothing in reporting counts a transfer at all: no
+ * money entered or left the business.
  */
 final class BankBalanceQuery
 {
@@ -99,8 +106,10 @@ final class BankBalanceQuery
             $this->takenAtTheTill(),
             $this->repaymentsReceived(),
             $this->manualMovements(),
+            $this->transfersIn(),
             $this->outward($this->expensesPaid()),
             $this->outward($this->invoicesPaid()),
+            $this->outward($this->transfersOut()),
         ];
     }
 
@@ -150,6 +159,37 @@ final class BankBalanceQuery
             BankAdjustment::query()->toBase(),
             'bank_adjustments.bank_id',
             'bank_adjustments.amount',
+        );
+    }
+
+    /**
+     * Money that arrived from another of the business's own accounts.
+     *
+     * @return array<int, int>
+     */
+    private function transfersIn(): array
+    {
+        return $this->sumByBank(
+            BankTransfer::query()->toBase(),
+            'bank_transfers.to_bank_id',
+            'bank_transfers.amount',
+        );
+    }
+
+    /**
+     * The other half of the same rows: money that left for another account.
+     *
+     * Read off the one row rather than a matching second one, which is what
+     * makes the two sides impossible to disagree.
+     *
+     * @return array<int, int>
+     */
+    private function transfersOut(): array
+    {
+        return $this->sumByBank(
+            BankTransfer::query()->toBase(),
+            'bank_transfers.from_bank_id',
+            'bank_transfers.amount',
         );
     }
 

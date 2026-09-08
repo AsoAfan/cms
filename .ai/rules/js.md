@@ -1,0 +1,53 @@
+---
+paths:
+  - 'resources/js/**'
+---
+
+# Js
+
+## Reuse the shared frontend primitives
+Build screens from these before writing new markup:
+
+- `<AppLayout breadcrumbs={...}>` — the authenticated shell. Attach as a persistent layout: `Page.layout = (page) => <AppLayout ...>{page}</AppLayout>`. Arrow-function layout components must be wrapped in an array in Inertia v3.
+- `<DataTable rows columns state getRowKey>` — server-driven sort/search/filter/paginate. Column `key` must match a key whitelisted by `TableQuery::sortable()`.
+- `<PageHeader title description actions>`, `<EmptyState>`, `<FormField>`, `<MoneyDisplay amount>`, `<MoneyInput>`, `<DateRangePicker>`.
+- Money arrives as integer minor units. Render with `<MoneyDisplay>` or `useFormatMoney()`; never divide by 100 inline.
+
+`resources/js/components/ui/*` and `hooks/use-mobile.ts` are shadcn registry code — regenerable, and excluded from ESLint. Do not hand-edit them; wrap them in a component under `components/` instead.
+
+## Every amount on the wire is base currency
+The `currency` prop carries `base`, `display`, `locale` and the currencies on offer with their rates. Amounts in props are **always base-currency minor units** — nothing is ever converted before it is sent.
+
+- `useFormatMoney()` converts to the user's chosen display currency and formats at that currency's `fraction_digits`. It is the only place a figure is converted for reading, so every screen switches together and nothing is converted twice. Never label a figure with a hardcoded currency code — `format` puts the currency on the number.
+- **Every money input is `<MoneyInput value currency onChange onCurrencyChange>`**, never a bare `<Input inputMode="decimal">`. Its dropdown belongs to that one field, and picking a currency **converts what is in the box** ($18.50 → 24,420 dinars). Swapping the label and leaving the digits would turn eighteen dollars into eighteen dinars.
+- Forms hold `{field}` plus `{field}_currency` and post both; the server converts. Never post a figure the client converted.
+- Running totals must be summed in base currency via `useToBase(value, currency)` — a mixed-currency invoice has no total in either currency alone. `convertToBase`/`convertFromBase` in `lib/money.ts` use the same integer rounding as PHP's `Money::multipliedByFraction`, so a live preview and the stored figure agree to the last dinar.
+- `useRestate(value, from, to)` is the "same money, said differently" conversion behind the dropdown.
+
+This project uses Base UI, not Radix: compose with `render={<Component />}`, not `asChild`. Forms use `FieldGroup`/`Field`, and toasts come from `@/components/ui/toast`, not sonner.
+
+## Dropdowns go through OptionSelect, never raw Select
+Base UI's `<Select.Value>` prints the RAW value unless `<Select.Root>` is given `items` mapping values to labels — and it never corrects itself once the popup has been opened, because the fallback is the stringified value, not the item's text. Every dropdown in the app showed ids and enum keys ("1" for a customer, "on_the_way" for a status) until this was fixed.
+
+Build dropdowns with `<OptionSelect value options onChange placeholder />` (`components/option-select.tsx`). It takes `{value, label, disabled?}[]`, feeds the same array to `items` and to the popup, and forwards the rest of its props to the trigger, so `{...control}` from `FormField`, `className` and `aria-label` all still work. The server's option props (`statuses`, `paymentMethods`, `allocationMethods`, `presets`) can be passed straight through.
+
+Compose the `ui/select` primitives directly ONLY where an item needs richer markup than a label — `MoneyInput` and `MoneyDisplay`'s currency pickers, whose trigger deliberately shows the bare code. Anywhere else, passing `items` by hand duplicates the labels and lets the two lists drift.
+
+## The logo is set in type, not traced into an SVG
+`<Logo>` composes the mark from the three faces it was drawn in — the initial in
+UniQAIDAR, `ASAMIN` in Shrikhand, the strapline in Poppins Bold — declared as
+`@font-face` in `app.css` from `resources/fonts/`. Real type stays sharp at any
+size and prints at whatever the printer can do.
+
+- `1em` on the way in IS the size of `ASAMIN`; everything else is in `em` off
+  that, so one font size scales the whole mark. Every ratio came from the fonts'
+  own metrics (advances, cap heights, ascent/descent) rather than from eyeing
+  the artwork.
+- **`em` inside a child resolves against that child's OWN font size.** The
+  strapline's `-mt-[1.5em]` is 1.5 x 0.28em, not 1.5 of the mark. This one bites
+  every time.
+- It carries no colour and takes the one around it: `text-brand` (#004aad) on
+  the invoice masthead, `text-brand-light` (#549bfc) inside the footer stamp.
+- It asks for its three faces with `document.fonts.load` on mount, because the
+  printed copy is `display: none` until the print stylesheet applies — and a
+  face nothing visible needs is a face the browser never fetched.

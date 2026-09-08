@@ -1,0 +1,65 @@
+---
+paths:
+  - 'app/Services/**'
+  - app/Services/CurrencyService.php
+  - app/Services/UpdateService.php
+---
+
+# Services
+
+## InventoryService is the only thing that writes stock
+Never insert a `stock_movements`, `stock_batches` or `stock_batch_consumptions` row directly — not in a controller, an action, a seeder or a test fixture. Go through `App\Services\InventoryService`:
+
+- `receive($product, $quantity, $unitCost, $type, $occurredAt, $source, $reason)` — writes the movement and its FIFO batch together.
+- `issue($product, $quantity, $type, $occurredAt, $source, $reason)` — allocates oldest-first and records exactly which batches paid, which is what makes COGS a fact. Throws `InsufficientStockException` and writes nothing if the ledger cannot cover it.
+- `adjust($product, $delta, $reason, $unitCost, $occurredAt)` — delegates to the two above. A positive delta REQUIRES a unit cost; stock appearing from nowhere still has to be valued or the valuation understates.
+
+Phase 4 and 5 post through `receive()`/`issue()` with the purchase or sale line as `$source`.
+
+Invariants the service upholds and tests pin:
+
+- Stock never goes negative. An issue that cannot be covered is refused whole.
+- An issue only draws on batches with `received_at <= occurred_at` — stock that had not arrived cannot have been sold.
+- Back-dating a receipt does NOT rewrite allocations already settled. The ledger is append-only; correcting means writing a further movement.
+- Nothing is ever updated or deleted. Products with stock history cannot be deleted (FK restrict).
+
+`StockOnHandQuery` and `InventoryValuationQuery` derive quantity and value; there is no balance column anywhere. Both accept an `asAt` date and rewind correctly.
+
+**Trap:** `StockBatch::remainingQuantity()` checks whether the `consumptions_sum_quantity` aggregate is *present*, not whether it is truthy. A date-constrained `withSum` returns NULL when nothing matched, and falling back to an unfiltered sum there silently ignores the constraint — that bug made an as-at valuation report today's figure.
+
+## There is no stock screen, and no stock-adjustment UI
+`/stock` and its count dialog were removed at the user's direction. Quantity on hand now shows as a column on the catalogue, still derived by `StockOnHandQuery` — no balance column appeared.
+
+Stock therefore moves **only** through purchases and sales. `InventoryService::adjust()` survives as a service method with its ledger tests, but nothing calls it: it is the hook a write-off screen would use, not dead weight to delete. Ask before either wiring it back up or removing it.
+
+Consequence to remember: there is no way to record an opening balance, damage or a miscount. Opening stock is entered as a purchase, which is also what values it correctly.
+
+## Currencies are rows, and rates are typed in — nothing fetches them
+Currencies live in `currencies`, not in config. `config('money.currency')` is only the code the seeder opens the books in and the fallback `CurrencyService::base()` uses before the first row exists; `config('money.seed_currencies')` is read once by `CurrencySeeder` and never again. Manage them on Settings → Currencies.
+
+**A published feed was built and removed at the user's direction.** There is no `currency:sync`, no schedule, no `source` column, and nothing anywhere calls the network for a rate — an arch test pins that. The official rate and the rate a business actually trades at are rarely the same number, and it is the second one that costs an invoice correctly. Ask before adding a feed back.
+
+Exactly one currency is `is_base`, and every monetary column in the application is minor units of it.
+
+- **Moving the base is refused once there is money on record** (`CurrencyService::makeBase()` → `CurrencyInUseException`). Each stored amount was recorded at a rate current when it happened, so no single rate could restate the history; converting at today's would quietly rewrite what past invoices cost. Moving it does succeed while the books are empty, and it deletes every rate, because those quoted the old base.
+- A currency cannot be removed while it is the base or named on a purchase, sale or expense. Removing one cascades its rates away (FK on `exchange_rates.currency`).
+- `enterable()` lists only the base plus currencies with a rate on record, so a currency you have added but not priced cannot be typed into a money field yet.
+
+A rate is base major units per one foreign major unit, scaled by `ExchangeRates::SCALE` (10^6) — 1320.50 IQD/USD is 1_320_500_000. Conversion itself lives in the framework-free `App\Support\ExchangeRates`, so it is unit-testable with no database.
+
+Lookups take the newest rate ON OR BEFORE the date, so a rate stands until a newer one is recorded and a back-dated document costs at its own day's rate.
+
+`CurrencyService` is a **singleton** (`AppServiceProvider`) so its memoised currencies and rates last the request — a purchase form posts a dozen amounts on one date. Every write calls `forget()`.
+
+TRAP: `effective_on` stores `Y-m-d 00:00:00`, so `max('effective_on')` returns a datetime string and `updateOrCreate` on it never matches a `Y-m-d`. Always `whereDate()` — see `record()` and `latestRowOn()`.
+
+## Self-update: a git checkout of a prebuilt release branch
+Client installs are a shallow git checkout of the `release` branch, which CI publishes with `vendor/` and `public/build` already in it — so a machine with only PHP and git can update. `.github/workflows/release.yml` builds it after `tests` passes; it never publishes a red build.
+
+`UpdateService::apply()` = fetch, back up the SQLite file with `VACUUM INTO` (a plain copy can miss committed rows when a write-ahead log is in play), `git reset --hard`, then `optimize:clear` + `migrate` **in-process**. In-process because there is no portable way to find the PHP binary from inside a request, and the migrator reads the directory when it runs, so it sees the files the reset just wrote. This is also why CI must never use `--classmap-authoritative`: a class the release just added would fail to autoload.
+
+Any failure after the files move rolls the checkout back and restores the backup. A client cannot diagnose or undo a half-applied copy.
+
+`UPDATE_REMOTE` carries the repository credential on a private install. It is passed to git per command (never written to `.git/config`), and every line of git output goes through `redact()` before it can reach a flash message, an exception or a log.
+
+Whether an update is waiting is a **cached** answer on the shared `update` Inertia prop, refreshed from the browser by `UpdateNotice` once it goes stale. Nothing on the server may fetch during a page load — a shop's internet is not reliable, and a screen that waits on it reads as broken. A background check that fails stays silent; only a check the user pressed for reports its failure.

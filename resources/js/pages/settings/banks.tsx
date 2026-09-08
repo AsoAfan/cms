@@ -1,5 +1,12 @@
 import { Head, router, useForm } from '@inertiajs/react';
-import { Landmark, Pencil, Scale, Trash2, X } from 'lucide-react';
+import {
+    ArrowRightLeft,
+    Landmark,
+    Pencil,
+    Scale,
+    Trash2,
+    X,
+} from 'lucide-react';
 import { useState } from 'react';
 
 import { EmptyState } from '@/components/empty-state';
@@ -33,7 +40,7 @@ import {
     TooltipContent,
     TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useCurrency } from '@/hooks/use-currency';
+import { useCurrency, useFormatMoney } from '@/hooks/use-currency';
 import AppLayout from '@/layouts/app-layout';
 import { todayIso } from '@/lib/date';
 import banks from '@/routes/settings/banks';
@@ -41,9 +48,10 @@ import type { BreadcrumbItem } from '@/types';
 import type {
     BankAdjustmentDirectionOption,
     BankAdjustmentForm,
-    BankAdjustmentRow,
     BankForm,
+    BankMovementRow,
     BankRow,
+    BankTransferForm,
 } from '@/types/banks';
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -56,13 +64,14 @@ const EMPTY: BankForm = { name: '', account_number: '', notes: '' };
 export default function BankSettings({
     banks: list,
     balanceTotal,
-    adjustments,
+    movements,
     directions,
 }: {
     banks: BankRow[];
     /** What the accounts hold between them. Minor units. */
     balanceTotal: number;
-    adjustments: BankAdjustmentRow[];
+    /** Everything moved by hand, both kinds in one list. */
+    movements: BankMovementRow[];
     directions: BankAdjustmentDirectionOption[];
 }) {
     // Editing happens in the same form as adding, keyed by which bank is open.
@@ -71,6 +80,10 @@ export default function BankSettings({
 
     // Which account is having its balance set by hand, if any.
     const [adjusting, setAdjusting] = useState<BankRow | null>(null);
+
+    // Which account money is being moved out of, if any. Moving needs two
+    // accounts, so the button only exists once there are two.
+    const [moving, setMoving] = useState<BankRow | null>(null);
 
     return (
         <>
@@ -119,14 +132,19 @@ export default function BankSettings({
                                         bank={bank}
                                         onEdit={() => setEditing(bank)}
                                         onAdjust={() => setAdjusting(bank)}
+                                        onMove={
+                                            list.length > 1
+                                                ? () => setMoving(bank)
+                                                : undefined
+                                        }
                                     />
                                 ))
                             )}
                         </CardContent>
                     </Card>
 
-                    {adjustments.length > 0 && (
-                        <AdjustmentsCard adjustments={adjustments} />
+                    {movements.length > 0 && (
+                        <MovementsCard movements={movements} />
                     )}
                 </div>
 
@@ -144,6 +162,12 @@ export default function BankSettings({
                 directions={directions}
                 onOpenChange={(open) => !open && setAdjusting(null)}
             />
+
+            <TransferDialog
+                from={moving}
+                banks={list}
+                onOpenChange={(open) => !open && setMoving(null)}
+            />
         </>
     );
 }
@@ -152,17 +176,21 @@ function BankCard({
     bank,
     onEdit,
     onAdjust,
+    onMove,
 }: {
     bank: BankRow;
     onEdit: () => void;
     onAdjust: () => void;
+    /** Absent while there is nowhere to move money to. */
+    onMove?: () => void;
 }) {
     const used =
         bank.sales_count +
         bank.purchases_count +
         bank.expenses_count +
         bank.payments_count +
-        bank.adjustments_count;
+        bank.adjustments_count +
+        bank.transfers_count;
 
     return (
         <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
@@ -188,6 +216,8 @@ function BankCard({
                                   `${bank.payments_count} repayments`,
                               bank.adjustments_count &&
                                   `${bank.adjustments_count} by hand`,
+                              bank.transfers_count &&
+                                  `${bank.transfers_count} transfers`,
                           ]
                               .filter(Boolean)
                               .join(' · ')}
@@ -206,6 +236,18 @@ function BankCard({
                     colored
                     className="mr-2 font-medium"
                 />
+
+                {onMove && (
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Move money out of ${bank.name}`}
+                        onClick={onMove}
+                    >
+                        <ArrowRightLeft />
+                    </Button>
+                )}
 
                 <Button
                     type="button"
@@ -234,57 +276,61 @@ function BankCard({
 }
 
 /**
- * The movements no document explains — an opening balance, cash deposited, a
- * charge. Listed so a balance can always be traced back to what made it, and
- * deletable because a hand-written movement is the one kind that can simply be
- * wrong.
+ * Everything moved by hand — an opening balance, cash deposited, a charge, and
+ * money shifted between the accounts.
+ *
+ * One list rather than two, because a balance is checked against a history and
+ * a history split in half is two things to read. A transfer shows the route it
+ * took and no sign: nothing left the business, so the figure belongs to the
+ * pair of accounts rather than to either one.
  */
-function AdjustmentsCard({
-    adjustments,
-}: {
-    adjustments: BankAdjustmentRow[];
-}) {
+function MovementsCard({ movements }: { movements: BankMovementRow[] }) {
     return (
         <Card>
             <CardHeader>
-                <CardTitle>Set by hand</CardTitle>
+                <CardTitle>Moved by hand</CardTitle>
                 <CardDescription>
-                    Money in or out that no sale, purchase or expense accounts
-                    for. Everything else in a balance comes from documents.
+                    Money in, out, or between accounts that no sale, purchase or
+                    expense accounts for. Everything else in a balance comes
+                    from documents.
                 </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-2">
-                {adjustments.map((adjustment) => (
+                {movements.map((movement) => (
                     <div
-                        key={adjustment.id}
+                        key={`${movement.kind}-${movement.id}`}
                         className="flex items-center justify-between gap-4 rounded-lg border p-3"
                     >
                         <div className="grid gap-0.5">
                             <span className="text-sm font-medium">
-                                {adjustment.reason}
+                                {movement.label}
                             </span>
                             <span className="text-xs text-muted-foreground">
-                                {adjustment.bank} · {adjustment.occurred_on}
+                                {movement.detail} · {movement.occurred_on}
                             </span>
                         </div>
 
                         <div className="flex items-center gap-1">
                             <MoneyDisplay
-                                amount={adjustment.amount}
-                                colored
-                                signed
+                                amount={movement.amount}
+                                colored={movement.kind === 'adjustment'}
+                                signed={movement.kind === 'adjustment'}
                             />
 
                             <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon-sm"
-                                aria-label={`Remove ${adjustment.reason}`}
+                                aria-label={`Remove ${movement.label}`}
                                 onClick={() =>
                                     router.delete(
-                                        banks.balance.destroy.url(
-                                            adjustment.id,
-                                        ),
+                                        movement.kind === 'transfer'
+                                            ? banks.transfers.destroy.url(
+                                                  movement.id,
+                                              )
+                                            : banks.balance.destroy.url(
+                                                  movement.id,
+                                              ),
                                         { preserveScroll: true },
                                     )
                                 }
@@ -296,6 +342,221 @@ function AdjustmentsCard({
                 ))}
             </CardContent>
         </Card>
+    );
+}
+
+/**
+ * Moving money from one of the business's accounts to another.
+ *
+ * Opened from the account the money is leaving, so the common case is one
+ * click and then a destination. Nothing about it is income or outcome: the
+ * total across the accounts is the same afterwards.
+ */
+function TransferDialog({
+    from,
+    banks: list,
+    onOpenChange,
+}: {
+    from: BankRow | null;
+    banks: BankRow[];
+    onOpenChange: (open: boolean) => void;
+}) {
+    return (
+        <Dialog open={from !== null} onOpenChange={onOpenChange}>
+            <DialogContent>
+                {from !== null && (
+                    <TransferForm
+                        key={from.id}
+                        from={from}
+                        banks={list}
+                        onDone={() => onOpenChange(false)}
+                    />
+                )}
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+function TransferForm({
+    from,
+    banks: list,
+    onDone,
+}: {
+    from: BankRow;
+    banks: BankRow[];
+    onDone: () => void;
+}) {
+    const { base } = useCurrency();
+    const format = useFormatMoney();
+
+    const form = useForm<BankTransferForm>({
+        from_bank_id: String(from.id),
+        to_bank_id: '',
+        amount: '',
+        amount_currency: base,
+        occurred_on: todayIso(),
+        reason: '',
+    });
+
+    function submit(event: React.FormEvent) {
+        event.preventDefault();
+
+        form.post(banks.transfers.store.url(), {
+            preserveScroll: true,
+            onSuccess: onDone,
+        });
+    }
+
+    const options = list.map((bank) => ({
+        value: String(bank.id),
+        label: bank.name,
+    }));
+
+    /**
+     * An account cannot pay itself, so choosing the account money is already
+     * going to as the one it leaves clears the destination rather than posting
+     * a pair the server will refuse.
+     */
+    function changeFrom(value: string) {
+        form.setData((data) => ({
+            ...data,
+            from_bank_id: value,
+            to_bank_id: data.to_bank_id === value ? '' : data.to_bank_id,
+        }));
+    }
+
+    const leaving = list.find(
+        (bank) => String(bank.id) === form.data.from_bank_id,
+    );
+
+    return (
+        <form onSubmit={submit} className="grid gap-6">
+            <DialogHeader>
+                <DialogTitle className="pr-8">Move money</DialogTitle>
+                <DialogDescription>
+                    Between your own accounts. Nothing is earned or spent — one
+                    balance goes down and the other up by the same amount.
+                </DialogDescription>
+            </DialogHeader>
+
+            <FieldGroup>
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField
+                        label="Out of"
+                        error={form.errors.from_bank_id}
+                        description={
+                            leaving
+                                ? undefined
+                                : 'Pick the account the money leaves.'
+                        }
+                    >
+                        {(control) => (
+                            <OptionSelect
+                                {...control}
+                                className="w-full"
+                                value={form.data.from_bank_id}
+                                options={options}
+                                onChange={(value) => changeFrom(String(value))}
+                            />
+                        )}
+                    </FormField>
+
+                    <FormField label="Into" error={form.errors.to_bank_id}>
+                        {(control) => (
+                            <OptionSelect
+                                {...control}
+                                className="w-full"
+                                value={form.data.to_bank_id}
+                                // The account it is leaving is not a place it
+                                // can go, so it is not on the list.
+                                options={options.filter(
+                                    (option) =>
+                                        option.value !== form.data.from_bank_id,
+                                )}
+                                onChange={(value) =>
+                                    form.setData('to_bank_id', String(value))
+                                }
+                                placeholder="Pick an account"
+                            />
+                        )}
+                    </FormField>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField
+                        label="Amount"
+                        error={form.errors.amount}
+                        description={
+                            leaving
+                                ? `${format(leaving.balance)} in there now.`
+                                : undefined
+                        }
+                    >
+                        {(control) => (
+                            <MoneyInput
+                                {...control}
+                                value={form.data.amount}
+                                currency={form.data.amount_currency}
+                                autoFocus
+                                onChange={(value) =>
+                                    form.setData('amount', value)
+                                }
+                                onCurrencyChange={(next) =>
+                                    form.setData('amount_currency', next)
+                                }
+                            />
+                        )}
+                    </FormField>
+
+                    <FormField
+                        label="Date"
+                        error={form.errors.occurred_on}
+                        description="Converted at that day's rate."
+                    >
+                        {(control) => (
+                            <Input
+                                {...control}
+                                type="date"
+                                value={form.data.occurred_on}
+                                onChange={(event) =>
+                                    form.setData(
+                                        'occurred_on',
+                                        event.target.value,
+                                    )
+                                }
+                            />
+                        )}
+                    </FormField>
+                </div>
+
+                <FormField
+                    label="Note"
+                    error={form.errors.reason}
+                    description="Optional — the two accounts and the date already say what this was."
+                >
+                    {(control) => (
+                        <Input
+                            {...control}
+                            value={form.data.reason}
+                            placeholder="Takings banked"
+                            autoComplete="off"
+                            onChange={(event) =>
+                                form.setData('reason', event.target.value)
+                            }
+                        />
+                    )}
+                </FormField>
+            </FieldGroup>
+
+            <DialogFooter>
+                <Button type="button" variant="ghost" onClick={onDone}>
+                    Cancel
+                </Button>
+                <Button type="submit" disabled={form.processing}>
+                    Move it
+                </Button>
+            </DialogFooter>
+        </form>
     );
 }
 

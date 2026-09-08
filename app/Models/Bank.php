@@ -98,6 +98,26 @@ class Bank extends Model
     }
 
     /**
+     * Money moved out of this account into another of the business's own.
+     *
+     * @return HasMany<BankTransfer, $this>
+     */
+    public function transfersOut(): HasMany
+    {
+        return $this->hasMany(BankTransfer::class, 'from_bank_id');
+    }
+
+    /**
+     * Money moved into this account from another of the business's own.
+     *
+     * @return HasMany<BankTransfer, $this>
+     */
+    public function transfersIn(): HasMany
+    {
+        return $this->hasMany(BankTransfer::class, 'to_bank_id');
+    }
+
+    /**
      * Whether anything has moved through this account.
      *
      * Manual movements count: they are the account's balance as much as a sale
@@ -111,6 +131,8 @@ class Bank extends Model
             || $this->purchases()->exists()
             || $this->expenses()->exists()
             || $this->customerPayments()->exists()
-            || $this->adjustments()->exists();
+            || $this->adjustments()->exists()
+            || $this->transfersOut()->exists()
+            || $this->transfersIn()->exists();
     }
 }

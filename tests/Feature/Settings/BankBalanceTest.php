@@ -4,6 +4,7 @@ use App\Enums\PaymentMethod;
 use App\Enums\PurchaseStatus;
 use App\Models\Bank;
 use App\Models\BankAdjustment;
+use App\Models\BankTransfer;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
 use App\Models\Expense;
@@ -275,6 +276,136 @@ it('keeps guests away from balances', function () {
 
 /*
 |--------------------------------------------------------------------------
+| Moving money between accounts
+|--------------------------------------------------------------------------
+|
+| A transfer is one row covering both sides, so it can never be half-recorded
+| and can never change what the business holds in total. Nothing in reporting
+| counts one: no money entered or left the business.
+|
+*/
+
+it('moves money from one account to another', function () {
+    $other = Bank::factory()->create(['name' => 'Kurdistan International Bank']);
+
+    BankAdjustment::factory()->for($this->bank)->create(['amount' => Money::fromDecimal('1000.00')]);
+
+    $this->post('/settings/banks/transfers', [
+        'from_bank_id' => $this->bank->id,
+        'to_bank_id' => $other->id,
+        'amount' => '300.00',
+        'occurred_on' => '2026-02-10',
+        'reason' => 'Takings banked',
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect(bankBalance($this->bank)->toDecimal())->toBe('700.00')
+        ->and(bankBalance($other)->toDecimal())->toBe('300.00');
+});
+
+it('leaves what the business holds in total exactly as it was', function () {
+    $other = Bank::factory()->create(['name' => 'Kurdistan International Bank']);
+
+    BankAdjustment::factory()->for($this->bank)->create(['amount' => Money::fromDecimal('1000.00')]);
+
+    $before = app(BankBalanceQuery::class)->total();
+
+    BankTransfer::factory()->between($this->bank, $other)->of('400.00')->create();
+
+    // The whole point of holding a transfer as one row: money moving inside the
+    // business cannot make it richer or poorer.
+    expect(app(BankBalanceQuery::class)->total()->minorUnits)->toBe($before->minorUnits);
+});
+
+it('refuses to move money to the account it came from', function () {
+    $this->post('/settings/banks/transfers', [
+        'from_bank_id' => $this->bank->id,
+        'to_bank_id' => $this->bank->id,
+        'amount' => '300.00',
+        'occurred_on' => '2026-02-10',
+    ])->assertSessionHasErrors('to_bank_id');
+
+    expect(BankTransfer::query()->count())->toBe(0);
+});
+
+it('refuses to move nothing', function (string $amount) {
+    $other = Bank::factory()->create(['name' => 'Kurdistan International Bank']);
+
+    $this->post('/settings/banks/transfers', [
+        'from_bank_id' => $this->bank->id,
+        'to_bank_id' => $other->id,
+        'amount' => $amount,
+        'occurred_on' => '2026-02-10',
+    ])->assertSessionHasErrors('amount');
+
+    expect(BankTransfer::query()->count())->toBe(0);
+})->with(['0.00', '-50.00']);
+
+it('refuses an account that is not on the list', function () {
+    $this->post('/settings/banks/transfers', [
+        'from_bank_id' => $this->bank->id,
+        'to_bank_id' => $this->bank->id + 99,
+        'amount' => '300.00',
+        'occurred_on' => '2026-02-10',
+    ])->assertSessionHasErrors('to_bank_id');
+
+    expect(BankTransfer::query()->count())->toBe(0);
+});
+
+it('takes a note only when there is one to take', function () {
+    $other = Bank::factory()->create(['name' => 'Kurdistan International Bank']);
+
+    $this->post('/settings/banks/transfers', [
+        'from_bank_id' => $this->bank->id,
+        'to_bank_id' => $other->id,
+        'amount' => '300.00',
+        'occurred_on' => '2026-02-10',
+    ])->assertSessionHasNoErrors();
+
+    expect(BankTransfer::query()->firstOrFail()->reason)->toBeNull();
+});
+
+it('puts both balances back when a transfer is removed', function () {
+    $other = Bank::factory()->create(['name' => 'Kurdistan International Bank']);
+
+    BankAdjustment::factory()->for($this->bank)->create(['amount' => Money::fromDecimal('1000.00')]);
+    $transfer = BankTransfer::factory()->between($this->bank, $other)->of('300.00')->create();
+
+    $this->delete("/settings/banks/transfers/{$transfer->id}")->assertRedirect();
+
+    expect(BankTransfer::query()->count())->toBe(0)
+        ->and(bankBalance($this->bank)->toDecimal())->toBe('1000.00')
+        ->and(bankBalance($other)->minorUnits)->toBe(0);
+});
+
+it('refuses to delete an account money has been moved through', function (string $direction) {
+    $other = Bank::factory()->create(['name' => 'Kurdistan International Bank']);
+
+    $direction === 'out'
+        ? BankTransfer::factory()->between($this->bank, $other)->create()
+        : BankTransfer::factory()->between($other, $this->bank)->create();
+
+    $this->delete("/settings/banks/{$this->bank->id}")->assertRedirect();
+
+    expect(Bank::query()->whereKey($this->bank->id)->exists())->toBeTrue();
+})->with(['out', 'in']);
+
+it('keeps guests away from moving money', function () {
+    $other = Bank::factory()->create(['name' => 'Kurdistan International Bank']);
+
+    auth()->logout();
+
+    $this->post('/settings/banks/transfers', [
+        'from_bank_id' => $this->bank->id,
+        'to_bank_id' => $other->id,
+        'amount' => '300.00',
+        'occurred_on' => '2026-02-10',
+    ])->assertRedirect('/login');
+
+    expect(BankTransfer::query()->count())->toBe(0);
+});
+
+/*
+|--------------------------------------------------------------------------
 | On the screens
 |--------------------------------------------------------------------------
 */
@@ -299,10 +430,39 @@ it('shows each account and what it holds on the settings screen', function () {
             ->where('banks.0.balance', 75_000)
             ->where('banks.0.adjustments_count', 1)
             ->where('balanceTotal', 75_000)
-            ->has('adjustments', 1)
-            ->where('adjustments.0.reason', 'Opening balance')
-            ->where('adjustments.0.bank', 'Cihan Bank')
+            ->has('movements', 1)
+            ->where('movements.0.kind', 'adjustment')
+            ->where('movements.0.label', 'Opening balance')
+            ->where('movements.0.detail', 'Cihan Bank')
             ->has('directions', 2)
+        );
+});
+
+it('lists a transfer beside the movements it was made with', function () {
+    $other = Bank::factory()->create(['name' => 'Kurdistan International Bank']);
+
+    BankAdjustment::factory()->for($this->bank)->create([
+        'reason' => 'Opening balance',
+        'occurred_on' => '2026-02-01',
+    ]);
+
+    BankTransfer::factory()->between($this->bank, $other)->of('300.00')->create([
+        'occurred_on' => '2026-02-10',
+        'reason' => null,
+    ]);
+
+    $this->get('/settings/banks')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            // Newest first, both kinds in one list.
+            ->has('movements', 2)
+            ->where('movements.0.kind', 'transfer')
+            ->where('movements.0.label', 'Moved between accounts')
+            ->where('movements.0.detail', 'Cihan Bank → Kurdistan International Bank')
+            // Never signed: nothing left the business.
+            ->where('movements.0.amount', 30_000)
+            ->where('movements.1.kind', 'adjustment')
+            ->where('banks.0.transfers_count', 1)
         );
 });
 

@@ -1,0 +1,1 @@
+import{G as e}from"./app-layout-DMjLiQag.js";function t(){return e(new Date,`yyyy-MM-dd`)}export{t};

@@ -101,7 +101,7 @@ const navigation: NavGroup[] = [
             { title: 'Banks', href: banks.index.url(), icon: Landmark },
             // Last, because it is the one thing here that is about the
             // software rather than the business.
-            { title: 'Updates', href: update.index.url(), icon: RefreshCw },
+            { title: 'New updates', href: update.index.url(), icon: RefreshCw },
         ],
     },
 ];

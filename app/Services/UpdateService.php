@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\BackupFailedException;
 use App\Exceptions\UpdateFailedException;
 use App\Support\Release;
 use App\Support\UpdateCheck;
@@ -9,7 +10,6 @@ use Illuminate\Contracts\Process\ProcessResult;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use Throwable;
@@ -47,6 +47,8 @@ final class UpdateService
      * halfway through.
      */
     private const string LOCK = 'update.lock';
+
+    public function __construct(private readonly BackupService $backups) {}
 
     public function isConfigured(): bool
     {
@@ -119,7 +121,7 @@ final class UpdateService
                 return new UpdateCheck($installed, $latest, $changes);
             }
 
-            $backup = $this->backUpDatabase();
+            $backup = $this->backUpBooks();
 
             try {
                 $this->mustRun(['reset', '--hard', $latest->sha], $this->applyTimeout());
@@ -395,6 +397,29 @@ final class UpdateService
         }
     }
 
+    /**
+     * Copies the books aside before anything is touched.
+     *
+     * Refusing to start is the right answer when the copy cannot be made: an
+     * update that cannot be undone is the one failure mode this whole class
+     * exists to avoid. An install with no file to copy — a database server —
+     * has its own backup policy and goes ahead without one.
+     *
+     * @throws UpdateFailedException
+     */
+    private function backUpBooks(): ?string
+    {
+        if (! $this->backups->supported()) {
+            return null;
+        }
+
+        try {
+            return $this->backups->take();
+        } catch (BackupFailedException $failure) {
+            throw UpdateFailedException::notBackedUp($failure->detail);
+        }
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Undo
@@ -415,7 +440,7 @@ final class UpdateService
             }
 
             if ($backup !== null) {
-                $this->restoreDatabase($backup);
+                $this->backups->restore($backup);
             }
 
             Artisan::call('optimize:clear');
@@ -426,82 +451,6 @@ final class UpdateService
         }
 
         throw UpdateFailedException::rolledBack($this->redact($cause->getMessage()));
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | The books
-    |--------------------------------------------------------------------------
-    */
-
-    /**
-     * Copies the database aside before anything is touched.
-     *
-     * `VACUUM INTO` rather than a file copy: with a write-ahead log in play the
-     * `.sqlite` file alone can be missing committed rows, and a backup that
-     * silently loses today's invoices is worse than none. Only SQLite installs
-     * get one — a server database is somebody else's backup policy.
-     */
-    private function backUpDatabase(): ?string
-    {
-        $connection = DB::connection();
-
-        if ($connection->getDriverName() !== 'sqlite') {
-            return null;
-        }
-
-        // `:memory:` is a database name that is not a file, which is what the
-        // test suite runs on and what there is nothing to copy aside.
-        $database = $connection->getDatabaseName();
-
-        if (! is_file($database)) {
-            return null;
-        }
-
-        $directory = (string) config('updates.backups');
-        File::ensureDirectoryExists($directory);
-
-        $path = $directory.'/'.now()->format('Y-m-d_His').'-database.sqlite';
-
-        try {
-            $connection->statement('VACUUM INTO ?', [$path]);
-        } catch (Throwable) {
-            File::copy($database, $path);
-        }
-
-        $this->pruneBackups($directory);
-
-        return $path;
-    }
-
-    private function restoreDatabase(string $backup): void
-    {
-        $connection = DB::connection();
-        $database = $connection->getDatabaseName();
-
-        // Drop the open handle first; on Windows the file cannot be replaced
-        // while it is held, and on every platform a live connection would go on
-        // reading pages that are no longer there.
-        DB::purge($connection->getName());
-
-        File::copy($backup, $database);
-    }
-
-    /**
-     * Keeps the newest few and deletes the rest. A client's disk is not a
-     * backup archive, and a folder of a hundred copies of the books is its own
-     * kind of confusing.
-     */
-    private function pruneBackups(string $directory): void
-    {
-        $backups = collect(File::files($directory))
-            ->filter(fn ($file): bool => str_ends_with($file->getFilename(), '-database.sqlite'))
-            ->sortByDesc(fn ($file): string => $file->getFilename())
-            ->slice((int) config('updates.keep_backups'));
-
-        foreach ($backups as $backup) {
-            File::delete($backup->getPathname());
-        }
     }
 
     /*

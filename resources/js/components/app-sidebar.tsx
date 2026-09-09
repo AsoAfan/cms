@@ -3,6 +3,7 @@ import {
     BadgeDollarSign,
     ChartLine,
     Coins,
+    DatabaseBackup,
     HandCoins,
     Landmark,
     LayoutDashboard,
@@ -36,6 +37,7 @@ import products from '@/routes/products';
 import purchases from '@/routes/purchases';
 import reports from '@/routes/reports';
 import sales from '@/routes/sales';
+import backup from '@/routes/settings/backup';
 import banks from '@/routes/settings/banks';
 import exchangeRates from '@/routes/settings/exchange-rates';
 import update from '@/routes/settings/update';
@@ -99,8 +101,14 @@ const navigation: NavGroup[] = [
                 icon: Coins,
             },
             { title: 'Banks', href: banks.index.url(), icon: Landmark },
-            // Last, because it is the one thing here that is about the
-            // software rather than the business.
+            // The two below are about the software rather than the business,
+            // and backup comes first: it is the one somebody should press
+            // before the other.
+            {
+                title: 'Backup',
+                href: backup.index.url(),
+                icon: DatabaseBackup,
+            },
             { title: 'Updates', href: update.index.url(), icon: RefreshCw },
         ],
     },

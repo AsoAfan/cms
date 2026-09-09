@@ -109,7 +109,7 @@ const navigation: NavGroup[] = [
                 href: backup.index.url(),
                 icon: DatabaseBackup,
             },
-            { title: 'Updates', href: update.index.url(), icon: RefreshCw },
+            { title: 'New updates', href: update.index.url(), icon: RefreshCw },
         ],
     },
 ];

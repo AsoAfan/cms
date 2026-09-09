@@ -1,9 +1,9 @@
 <?php return array(
     'root' => array(
         'name' => 'laravel/blank-react-starter-kit',
-        'pretty_version' => 'dev-6ff8a4e79876350e49489dba520264f0b97cbbe3',
-        'version' => 'dev-6ff8a4e79876350e49489dba520264f0b97cbbe3',
-        'reference' => '6ff8a4e79876350e49489dba520264f0b97cbbe3',
+        'pretty_version' => 'dev-a0b8d648cdf3588649c1ab958ebcf6068313c642',
+        'version' => 'dev-a0b8d648cdf3588649c1ab958ebcf6068313c642',
+        'reference' => 'a0b8d648cdf3588649c1ab958ebcf6068313c642',
         'type' => 'project',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -359,9 +359,9 @@
             'dev_requirement' => false,
         ),
         'laravel/blank-react-starter-kit' => array(
-            'pretty_version' => 'dev-6ff8a4e79876350e49489dba520264f0b97cbbe3',
-            'version' => 'dev-6ff8a4e79876350e49489dba520264f0b97cbbe3',
-            'reference' => '6ff8a4e79876350e49489dba520264f0b97cbbe3',
+            'pretty_version' => 'dev-a0b8d648cdf3588649c1ab958ebcf6068313c642',
+            'version' => 'dev-a0b8d648cdf3588649c1ab958ebcf6068313c642',
+            'reference' => 'a0b8d648cdf3588649c1ab958ebcf6068313c642',
             'type' => 'project',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

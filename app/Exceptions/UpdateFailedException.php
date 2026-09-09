@@ -74,6 +74,18 @@ final class UpdateFailedException extends RuntimeException
     }
 
     /**
+     * Refusing to start, because an update that cannot be undone is the one
+     * failure this class exists to prevent.
+     */
+    public static function notBackedUp(string $detail): self
+    {
+        return self::because(
+            'Your records could not be copied aside first, so the update was not started and nothing was changed.',
+            $detail
+        );
+    }
+
+    /**
      * The one message that has to admit something happened, because the files
      * had already been replaced by the time this failed.
      */

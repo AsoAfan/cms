@@ -23,5 +23,5 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Http/Requests/Purchasing/** | .ai/rules/requests-purchasing.md |
 | app/Http/Requests/** | .ai/rules/requests.md |
 | app/Actions/Sales/**, app/Http/Controllers/Sales/**, resources/js/pages/sales/**, resources/js/components/sales/** | .ai/rules/sales.md |
-| app/Services/**, app/Services/CurrencyService.php, app/Services/UpdateService.php | .ai/rules/services.md |
+| app/Services/**, app/Services/CurrencyService.php, app/Services/UpdateService.php, app/Services/BackupService.php | .ai/rules/services.md |
 | app/Support/ReportPeriod.php | .ai/rules/support.md |

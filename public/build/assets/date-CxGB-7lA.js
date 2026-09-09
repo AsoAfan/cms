@@ -1,0 +1,1 @@
+import{K as e}from"./app-layout-BjfaOYrS.js";function t(){return e(new Date,`yyyy-MM-dd`)}export{t};

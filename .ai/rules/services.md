@@ -3,6 +3,7 @@ paths:
   - 'app/Services/**'
   - app/Services/CurrencyService.php
   - app/Services/UpdateService.php
+  - app/Services/BackupService.php
 ---
 
 # Services
@@ -63,3 +64,13 @@ Any failure after the files move rolls the checkout back and restores the backup
 `UPDATE_REMOTE` carries the repository credential on a private install. It is passed to git per command (never written to `.git/config`), and every line of git output goes through `redact()` before it can reach a flash message, an exception or a log.
 
 Whether an update is waiting is a **cached** answer on the shared `update` Inertia prop, refreshed from the browser by `UpdateNotice` once it goes stale. Nothing on the server may fetch during a page load — a shop's internet is not reliable, and a screen that waits on it reads as broken. A background check that fails stays silent; only a check the user pressed for reports its failure.
+
+## Backups: one mechanism, two callers, and no restore button
+`BackupService` is the only thing that copies the database. The Settings → Backup button and `UpdateService` (before it moves any files) both go through it, write to the same folder (`config('backups.path')`) and prune together, so the screen lists every copy that exists.
+
+- `VACUUM INTO`, never a plain file copy: with a WAL in play the `.sqlite` file alone can be missing rows committed minutes ago. `File::copy` is only the fallback for a SQLite build with no `VACUUM INTO`.
+- SQLite-with-a-file only. `supported()` is false on a database server and on the suite's `:memory:`, and the update refuses to start rather than proceeding without a copy it could roll back to.
+- `restore()` exists for the updater's rollback and has deliberately NO button: restoring throws away everything entered since the copy was taken. Ask before adding one.
+- `pathFor()` basenames the name from the URL and requires the `-database.sqlite` suffix. The route pattern blocks a path as well; keep both — a route pattern is easy to widen later without noticing what it held back.
+
+Testing trap: a test that repoints `database.default` at a file MUST set it back to `sqlite` in `afterEach`. `RefreshDatabase` rolls back on whatever the default names at teardown and sets `RefreshDatabaseState::$migrated = false` if it finds a connection with no transaction — which re-migrates into a half-torn-down database for every test after it. See `booksInAFile()` in `tests/Feature/Settings/BackupTest.php`.

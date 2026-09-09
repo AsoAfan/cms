@@ -87,18 +87,4 @@ return [
 
     'retry_after' => (int) env('UPDATE_RETRY_AFTER_MINUTES', 30),
 
-    /*
-    |--------------------------------------------------------------------------
-    | Database Backups
-    |--------------------------------------------------------------------------
-    |
-    | Taken before every update and restored if one fails. The client's only
-    | copy of the books is on their own machine.
-    |
-    */
-
-    'backups' => storage_path('app/private/backups'),
-
-    'keep_backups' => 10,
-
 ];

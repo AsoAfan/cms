@@ -13,6 +13,7 @@ use App\Http\Controllers\Reports\ReportController;
 use App\Http\Controllers\Reports\ReportExportController;
 use App\Http\Controllers\Sales\QuickSaleController;
 use App\Http\Controllers\Sales\SaleController;
+use App\Http\Controllers\Settings\BackupController;
 use App\Http\Controllers\Settings\BankAdjustmentController;
 use App\Http\Controllers\Settings\BankController;
 use App\Http\Controllers\Settings\BankTransferController;
@@ -156,6 +157,16 @@ Route::middleware('auth')->group(function (): void {
         Route::delete('currencies/{currency}', [CurrencyController::class, 'destroy'])
             ->name('currencies.destroy')
             ->whereNumber('currency');
+
+        // A copy of the books, taken on demand. The same folder the updater
+        // writes to before it touches anything, so the screen lists every copy
+        // that exists. Downloading is a GET and a plain link because the
+        // browser, not Inertia, has to be the one that saves the file.
+        Route::get('backup', [BackupController::class, 'index'])->name('backup.index');
+        Route::post('backup', [BackupController::class, 'store'])->name('backup.store');
+        Route::get('backup/{name}', [BackupController::class, 'download'])
+            ->name('backup.download')
+            ->where('name', '[A-Za-z0-9_\-.]+');
 
         // Keeping the installed copy current, in place of a client downloading
         // a zip and replacing files by hand. `index` shows a remembered answer
